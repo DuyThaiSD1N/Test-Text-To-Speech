@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTS System - Text to Speech</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
+    <main class="container">
+        <header>
+            <div class="logo">
+                <div class="logo-icon"></div>
+                <h1>Text to <span>Speech</span></h1>
+            </div>
+            <p class="subtitle">Convert text to realistic speech instantly.</p>
+        </header>
+
+        <section id="tts-section" class="glass-panel main-panel">
+            <div class="input-group">
+                <label for="text-input">Your Text</label>
+                <textarea id="text-input" placeholder="Type or paste something here..."></textarea>
+            </div>
+
+            <div class="controls">
+                <div class="config-info">
+                    <span class="badge">Voice: thuyanh-north</span>
+                    <span class="badge">Format: 8kHz WAV</span>
+                </div>
+                <button id="generate-btn" class="primary-btn">
+                    <span class="btn-text">Generate Speech</span>
+                    <div class="loader"></div>
+                </button>
+            </div>
+
+            <div id="tts-result" class="result-area hidden">
+                <div class="audio-container">
+                    <audio id="audio-player" controls></audio>
+                    <a id="download-link" class="secondary-btn" download="speech.wav">Download WAV</a>
+                </div>
+            </div>
+        </section>
+
+        <footer>
+            <p>&copy; 2026 SynthesizeAI. TTS Module.</p>
+        </footer>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

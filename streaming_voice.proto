@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package streaming_voice;
+
+service StreamVoice {
+    rpc SendVoice(stream VoiceRequest) returns (stream TextReply);
+}
+
+message VoiceRequest {
+    bytes byte_buff = 1;
+}
+
+// Real server response format (reverse-engineered from raw bytes):
+// field 3 = id (string) - client session id
+// field 4 = Result (nested message with hypotheses)
+// field 9 = download_url (string) - URL to download audio/result file
+message TextReply {
+    string id = 3;
+    Result result = 4;
+    string download_url = 9;
+}
+
+message Result {
+    repeated Hypothesis hypotheses = 1;
+    bool final = 2;
+}
+
+message Hypothesis {
+    string transcript = 1;
+    float confidence = 2;
+}
