@@ -18,9 +18,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from stt_client import ASRClient
-from tts_client import TTSClient
-from agent import process_user_message
+from speech_to_text import ASRClient
+from text_to_speech import TTSClient
+from ai_logic import process_user_message
 from langchain_core.messages import BaseMessage
 
 load_dotenv()

@@ -50,7 +50,7 @@ def get_llm():
     # Bind tools vào LLM. Dùng temperature=0 cho tool calling chính xác hơn.
     return ChatOpenAI(model=model, api_key=api_key, temperature=0).bind_tools(tools)
 
-from prompts import INSURANCE_SYSTEM_PROMPT
+from bot_scenario import INSURANCE_SYSTEM_PROMPT
 
 # ─── System Prompt ─────────────────────────────────────────────────────────────
 def get_system_prompt() -> str:
