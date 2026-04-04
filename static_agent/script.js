@@ -7,6 +7,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatArea       = document.getElementById('chat-area');
     const welcomeMsg     = document.getElementById('welcome-msg');
     const clearBtn       = document.getElementById('clear-btn');
+    const chatInput      = document.getElementById('chat-input');
+    const sendBtn        = document.getElementById('send-btn');
 
     const iconMic  = micBtn.querySelector('.icon-mic');
     const iconStop = micBtn.querySelector('.icon-stop');
@@ -305,8 +307,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             case 'info':
                 setProcessingState(false);
-                addInfoPill(`ℹ️ ${msg.message}`);
-                currentUserBubble = null;
+                if (msg.message && msg.message !== "Không nghe rõ. Vui lòng thử lại!" && msg.message !== "Kết thúc ghi âm.") {
+                    addInfoPill(`ℹ️ ${msg.message}`);
+                }
+                if (currentUserBubble) {
+                    currentUserBubble.remove();
+                    currentUserBubble = null;
+                }
                 currentTranscript = '';
                 setLiveTranscript('');
                 setStatus('Nhấn mic để bắt đầu nói');
@@ -336,6 +343,49 @@ document.addEventListener('DOMContentLoaded', () => {
         chatArea.appendChild(welcomeMsg);
         welcomeMsg.style.display = '';
         setStatus('Đã xóa lịch sử. Nhấn mic để bắt đầu.');
+    });
+
+    // ── Send text ──────────────────────────────────────────────────────────────
+    async function sendText() {
+        const text = chatInput.value.trim();
+        if (!text || isProcessing) return;
+
+        chatInput.value = '';
+        addUserBubble(text);
+        setProcessingState(true);
+        setStatus('Agent đang suy nghĩ...');
+        currentAgentBubble = addThinkingBubble(); // Hiển thị text loading của Agent
+
+        try {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                ws = new WebSocket(`${proto}//${location.host}/ws/agent`);
+                
+                await new Promise((resolve, reject) => {
+                    ws.onopen = resolve;
+                    ws.onerror = reject;
+                });
+                
+                ws.onmessage = (event) => handleServerMessage(JSON.parse(event.data));
+                ws.onerror   = () => { addInfoPill('Lỗi kết nối WebSocket', true); resetUI(); };
+                ws.onclose   = ()  => { if (!isProcessing) resetUI(); };
+            }
+
+            ws.send(JSON.stringify({ type: 'text_input', text: text }));
+            
+        } catch (err) {
+            addInfoPill(`Lỗi: ${err.message}`, true);
+            setProcessingState(false);
+            if (currentAgentBubble) {
+                currentAgentBubble.remove();
+                currentAgentBubble = null;
+            }
+        }
+    }
+
+    sendBtn.addEventListener('click', sendText);
+    chatInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendText();
     });
 
     micBtn.addEventListener('click', toggleRecord);

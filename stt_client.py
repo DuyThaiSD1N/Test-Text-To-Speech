@@ -213,7 +213,7 @@ class ASRClient:
                         # Final response but empty — no speech detected
                         print("[ASR Client] Final response but empty transcript "
                               "(no speech detected or audio too quiet)")
-                        yield {"transcript": "[Không nhận được giọng nói]",
+                        yield {"transcript": "",
                                "isFinal": True, "confidence": 0.0}
 
                 if download_url and not hypotheses:

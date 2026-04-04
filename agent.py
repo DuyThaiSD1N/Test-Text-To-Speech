@@ -50,13 +50,11 @@ def get_llm():
     # Bind tools vào LLM. Dùng temperature=0 cho tool calling chính xác hơn.
     return ChatOpenAI(model=model, api_key=api_key, temperature=0).bind_tools(tools)
 
+from prompts import INSURANCE_SYSTEM_PROMPT
+
 # ─── System Prompt ─────────────────────────────────────────────────────────────
 def get_system_prompt() -> str:
-    return os.getenv(
-        "AGENT_SYSTEM_PROMPT",
-        "Bạn là một trợ lý AI thông minh cho tổng đài, trả lời bằng tiếng Việt ngắn gọn, lịch sự. "
-        "Nếu người dùng hỏi về thời tiết, hãy sử dụng công cụ get_weather."
-    )
+    return os.getenv("AGENT_SYSTEM_PROMPT", INSURANCE_SYSTEM_PROMPT)
 
 # ─── Nodes ────────────────────────────────────────────────────────────────────
 def call_agent(state: AgentState):

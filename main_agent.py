@@ -102,21 +102,22 @@ async def agent_websocket(websocket: WebSocket):
                         })
 
             # Sau khi ASR xong, gửi transcript vào agent
-            if final_transcript.strip():
-                print(f"[Agent] Sending to agent: {repr(final_transcript)}")
+            transcript_clean = final_transcript.strip()
+            if transcript_clean and transcript_clean != "[Không nhận được giọng nói]":
+                print(f"[Agent] Sending to agent: {repr(transcript_clean)}")
                 await websocket.send_json({
                     "type": "thinking",
                     "message": "Agent đang xử lý..."
                 })
 
                 agent_response = await process_user_message(
-                    final_transcript.strip(),
+                    transcript_clean,
                     conversation_history
                 )
 
                 # Lưu vào history
                 from langchain_core.messages import HumanMessage, AIMessage
-                conversation_history.append(HumanMessage(content=final_transcript.strip()))
+                conversation_history.append(HumanMessage(content=transcript_clean))
                 conversation_history.append(AIMessage(content=agent_response))
 
                 print(f"[Agent] Response: {repr(agent_response)}")
@@ -144,6 +145,13 @@ async def agent_websocket(websocket: WebSocket):
                         print(f"[Agent] Audio response sent ({len(pcm_data)} bytes)")
                 except Exception as tts_err:
                     print(f"[Agent] TTS Error: {tts_err}")
+            else:
+                # Không nhận diện được tiếng, phản hồi info để frontend reset
+                print("[Agent] No speech detected => skipping AI response.")
+                if transcript_clean == "[Không nhận được giọng nói]":
+                    await websocket.send_json({"type": "info", "message": "Không nhận được giọng nói. Vui lòng thử lại!"})
+                else:
+                    await websocket.send_json({"type": "info", "message": "Kết thúc ghi âm."})
 
         except asyncio.CancelledError:
             print("[Agent] ASR+Agent task cancelled.")
@@ -200,6 +208,52 @@ async def agent_websocket(websocket: WebSocket):
                         conversation_history.clear()
                         print("[Agent] Conversation history cleared.")
                         await websocket.send_json({"type": "info", "message": "Đã xóa lịch sử hội thoại."})
+
+                    elif cmd_type == "text_input":
+                        text_msg = cmd.get("text", "").strip()
+                        if text_msg:
+                            print(f"[Agent] TEXT_INPUT received: {text_msg}")
+                            await websocket.send_json({
+                                "type": "thinking",
+                                "message": "Agent đang xử lý..."
+                            })
+
+                            try:
+                                agent_response = await process_user_message(
+                                    text_msg,
+                                    conversation_history
+                                )
+                                from langchain_core.messages import HumanMessage, AIMessage
+                                conversation_history.append(HumanMessage(content=text_msg))
+                                conversation_history.append(AIMessage(content=agent_response))
+
+                                print(f"[Agent] Response: {repr(agent_response)}")
+                                await websocket.send_json({
+                                    "type": "agent_response",
+                                    "text": agent_response
+                                })
+
+                                # --- TTS Synthesis ---
+                                try:
+                                    import base64
+                                    pcm_data = b""
+                                    async for chunk in tts_client.synthesize(agent_response):
+                                        pcm_data += chunk
+                                    
+                                    if pcm_data:
+                                        audio_base64 = base64.b64encode(pcm_data).decode('utf-8')
+                                        await websocket.send_json({
+                                            "type": "audio_response",
+                                            "audio": audio_base64,
+                                            "sampleRate": 8000
+                                        })
+                                        print(f"[Agent] Audio response sent ({len(pcm_data)} bytes)")
+                                except Exception as tts_err:
+                                    print(f"[Agent] TTS Error: {tts_err}")
+
+                            except Exception as agent_err:
+                                print(f"[Agent] Error processing text: {agent_err}")
+                                await websocket.send_json({"type": "error", "message": f"Lỗi xử lý: {agent_err}"})
 
                 except json.JSONDecodeError:
                     pass
