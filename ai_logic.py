@@ -21,6 +21,7 @@ load_dotenv()
 class AgentState(TypedDict):
     # add_messages giúp cộng dồn lịch sử hội thoại thay vì ghi đè
     messages: Annotated[List[BaseMessage], add_messages]
+    customer_context: str
 
 # ─── Tools ───────────────────────────────────────────────────────────────────
 @tool
@@ -60,7 +61,12 @@ def get_system_prompt() -> str:
 def call_agent(state: AgentState):
     """Node này gọi LLM để quyết định hành động tiếp theo."""
     llm = get_llm()
-    system = SystemMessage(content=get_system_prompt())
+    system_content = get_system_prompt()
+    context = state.get("customer_context", "")
+    if context:
+        system_content += f"\n\n[QUAN TRỌNG - THÔNG TIN KHÁCH HÀNG HIỆN TẠI]\n{context}\n(Bạn luôn được phép dùng thông tin này để xưng hô và giải đáp mà không cần tra cứu thêm)."
+    
+    system = SystemMessage(content=system_content)
     messages = [system] + state["messages"]
     response = llm.invoke(messages)
     return {"messages": [response]}
@@ -107,13 +113,13 @@ async def process_user_message(text: str, history: List[BaseMessage]) -> str:
 
 from typing import AsyncIterator
 
-async def process_user_message_stream(text: str, history: List[BaseMessage]) -> AsyncIterator[str]:
+async def process_user_message_stream(text: str, history: List[BaseMessage], context: str = "") -> AsyncIterator[str]:
     """
     Xử lý text từ ASR và stream từng token của Agent ra ngoài.
     Trả về AsyncIterator yields string chunks.
     """
     user_msg = HumanMessage(content=text)
-    input_state = {"messages": history + [user_msg]}
+    input_state = {"messages": history + [user_msg], "customer_context": context}
     config = {"configurable": {"thread_id": "1"}}
     
     # Dùng astream_events để lấy stream từ node LLM
