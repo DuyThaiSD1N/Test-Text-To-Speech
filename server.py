@@ -53,6 +53,7 @@ async def agent_websocket(websocket: WebSocket):
 
     # Conversation history (persist across turns in one session)
     conversation_history: list[BaseMessage] = []
+    customer_context_str = ""
 
     asr_client = None
     is_recording = False
@@ -112,7 +113,7 @@ async def agent_websocket(websocket: WebSocket):
                 })
 
                 t0 = time.time()
-                text_stream = process_user_message_stream(transcript_clean, conversation_history)
+                text_stream = process_user_message_stream(transcript_clean, conversation_history, customer_context_str)
                 
                 full_response = []
                 async def text_iterator_wrapper():
@@ -245,7 +246,7 @@ async def agent_websocket(websocket: WebSocket):
 
                             try:
                                 t0 = time.time()
-                                text_stream = process_user_message_stream(text_msg, conversation_history)
+                                text_stream = process_user_message_stream(text_msg, conversation_history, customer_context_str)
                                 
                                 full_response = []
                                 async def text_iterator_wrapper():
@@ -320,8 +321,7 @@ async def agent_websocket(websocket: WebSocket):
                                 expire_status = f"có ngày hết hạn là {expire}"
                         else:
                             expire_status = "chưa rõ tình trạng hạn bảo hiểm"
-
-                        context_prompt = f"Danh xưng: {title}\nHọ và tên: {name}\nBiển số xe: {plate}\nTình trạng thực tế: {expire_status}"
+                        customer_context_str = f"Danh xưng: {title}\nHọ và tên: {name}\nBiển số xe: {plate}\nTình trạng thực tế: {expire_status}"
 
                         await websocket.send_json({
                             "type": "thinking",
@@ -329,9 +329,9 @@ async def agent_websocket(websocket: WebSocket):
                         })
                         try:
                             t0 = time.time()
-                            first_prompt = f"Hệ thống nội bộ cung cấp cho bạn thông tin khách hàng hiện tại như sau:\n{context_prompt}\n\nDựa vào các thông tin trên, hãy lập tức vào vai tổng đài viên bảo hiểm xe. Bắt đầu cuộc gọi bằng việc chào {title} {name}, nhắc đến đúng thông tin biển số xe {plate} và khéo léo thông báo/hỏi thăm về tình trạng {expire_status} để mời tư vấn bảo hiểm. Yêu cầu: nói thật tự nhiên, lưu loát, KHÔNG lặp lại như cái máy, giới hạn trong 2-3 câu ngắn."
+                            first_prompt = f"Hệ thống nội bộ cung cấp cho bạn thông tin khách hàng hiện tại như sau:\n{customer_context_str}\n\nDựa vào các thông tin trên, hãy lập tức vào vai tổng đài viên bảo hiểm xe. Bắt đầu cuộc gọi bằng việc chào {title} {name}, nhắc đến đúng thông tin biển số xe {plate} và khéo léo thông báo/hỏi thăm về tình trạng {expire_status} để mời tư vấn bảo hiểm. Yêu cầu: nói thật tự nhiên, lưu loát, KHÔNG lặp lại như cái máy, giới hạn trong 2-3 câu ngắn."
                             # Store system message instruction in history
-                            text_stream = process_user_message_stream(first_prompt, conversation_history)
+                            text_stream = process_user_message_stream(first_prompt, conversation_history, customer_context_str)
                             
                             full_response = []
                             async def text_iterator_wrapper():
