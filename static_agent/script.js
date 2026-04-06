@@ -155,7 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
         micRing.classList.toggle('active', recording);
         iconMic.style.display  = recording ? 'none' : '';
         iconStop.style.display = recording ? '' : 'none';
-        setStatus(recording ? 'Đang nghe... Nhấn để dừng' : 'Nhấn mic để bắt đầu nói',
+        setStatus(recording ? 'Đang nghe... Thả để gửi' : 'Nhấn giữ mic để nói',
                   recording ? '#ef4444' : '');
         if (!recording) setLiveTranscript('');
     }
@@ -164,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isProcessing = processing;
         micBtn.classList.toggle('processing', processing);
         micBtn.disabled = processing;
-        setStatus(processing ? 'Đang xử lý...' : 'Nhấn mic để bắt đầu nói',
+        setStatus(processing ? 'Đang xử lý...' : 'Nhấn giữ mic để nói',
                   processing ? '#f59e0b' : '');
     }
 
@@ -182,64 +182,63 @@ document.addEventListener('DOMContentLoaded', () => {
         ws = null;
     }
 
-    // ── Toggle recording ──────────────────────────────────────────────────────
-    async function toggleRecord() {
-        if (isProcessing) return;
+    // ── Start/Stop recording (Push-to-talk) ──────────────────────────────────
+    async function startRecording() {
+        if (isProcessing || isRecording) return;
 
-        if (!isRecording) {
-            // ── START ─────────────────────────────────────────────────────────
-            try {
-                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${proto}//${location.host}/ws/agent`);
+        try {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${proto}//${location.host}/ws/agent`);
 
-                ws.onopen = async () => {
-                    ws.send(JSON.stringify({ type: 'start' }));
+            ws.onopen = async () => {
+                ws.send(JSON.stringify({ type: 'start' }));
 
-                    stream = await navigator.mediaDevices.getUserMedia({
-                        audio: { channelCount: 1, echoCancellation: false,
-                                 noiseSuppression: false, autoGainControl: false }
-                    });
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: { channelCount: 1, echoCancellation: false,
+                             noiseSuppression: false, autoGainControl: false }
+                });
 
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    inputNode = audioContext.createMediaStreamSource(stream);
-                    processor  = audioContext.createScriptProcessor(4096, 1, 1);
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                inputNode = audioContext.createMediaStreamSource(stream);
+                processor  = audioContext.createScriptProcessor(4096, 1, 1);
 
-                    setRecordingState(true);
+                setRecordingState(true);
 
-                    processor.onaudioprocess = (e) => {
-                        if (!isRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
-                        const pcm = downsample(e.inputBuffer.getChannelData(0),
-                                               e.inputBuffer.sampleRate, 8000);
-                        ws.send(pcm.buffer);
-                    };
-
-                    inputNode.connect(processor);
-                    const gain = audioContext.createGain();
-                    gain.gain.value = 0;
-                    processor.connect(gain);
-                    gain.connect(audioContext.destination);
+                processor.onaudioprocess = (e) => {
+                    if (!isRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
+                    const pcm = downsample(e.inputBuffer.getChannelData(0),
+                                           e.inputBuffer.sampleRate, 8000);
+                    ws.send(pcm.buffer);
                 };
 
-                ws.onmessage = (event) => handleServerMessage(JSON.parse(event.data));
-                ws.onerror   = () => { addInfoPill('Lỗi kết nối WebSocket', true); resetUI(); };
-                ws.onclose   = ()  => { if (!isProcessing) resetUI(); };
+                inputNode.connect(processor);
+                const gain = audioContext.createGain();
+                gain.gain.value = 0;
+                processor.connect(gain);
+                gain.connect(audioContext.destination);
+            };
 
-            } catch (err) {
-                addInfoPill(`Lỗi: ${err.message}`, true);
-                setRecordingState(false);
-            }
+            ws.onmessage = (event) => handleServerMessage(JSON.parse(event.data));
+            ws.onerror   = () => { addInfoPill('Lỗi kết nối WebSocket', true); resetUI(); };
+            ws.onclose   = ()  => { if (!isProcessing) resetUI(); };
 
-        } else {
-            // ── STOP ──────────────────────────────────────────────────────────
+        } catch (err) {
+            addInfoPill(`Lỗi: ${err.message}`, true);
             setRecordingState(false);
-            stopMicAudio();
-            setProcessingState(true);
-            micBtn.classList.remove('recording');
-            iconMic.style.display = '';
-            iconStop.style.display = 'none';
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'stop' }));
-            }
+        }
+    }
+
+    async function stopRecording() {
+        if (!isRecording) return;
+
+        setRecordingState(false);
+        stopMicAudio();
+        setProcessingState(true);
+        micBtn.classList.remove('recording');
+        iconMic.style.display = '';
+        iconStop.style.display = 'none';
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'stop' }));
         }
     }
 
@@ -289,7 +288,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentAgentBubble = null;
                 currentTranscript  = '';
                 setLiveTranscript('');
-                setStatus('Nhấn mic để tiếp tục');
+                setStatus('Nhấn giữ mic để tiếp tục');
                 break;
 
             case 'audio_response':
@@ -316,7 +315,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 currentTranscript = '';
                 setLiveTranscript('');
-                setStatus('Nhấn mic để bắt đầu nói');
+                setStatus('Nhấn giữ mic để bắt đầu nói');
                 closeWs();
                 break;
         }
@@ -342,7 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
         chatArea.innerHTML = '';
         chatArea.appendChild(welcomeMsg);
         welcomeMsg.style.display = '';
-        setStatus('Đã xóa lịch sử. Nhấn mic để bắt đầu.');
+        setStatus('Đã xóa lịch sử. Nhấn giữ mic để bắt đầu.');
     });
 
     // ── Send text ──────────────────────────────────────────────────────────────
@@ -388,5 +387,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Enter') sendText();
     });
 
-    micBtn.addEventListener('click', toggleRecord);
+    // micBtn.addEventListener('click', toggleRecord);
+    
+    // Thiết lập sự kiện pointer cho tính năng Push-to-talk
+    micBtn.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        micBtn.setPointerCapture(e.pointerId);
+        startRecording();
+    });
+
+    micBtn.addEventListener('pointerup', (e) => {
+        e.preventDefault();
+        stopRecording();
+    });
+
+    micBtn.addEventListener('pointercancel', (e) => {
+        e.preventDefault();
+        stopRecording();
+    });
 });
