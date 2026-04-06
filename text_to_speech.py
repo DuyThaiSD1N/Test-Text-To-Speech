@@ -369,6 +369,94 @@ class TTSClient:
         if self.ws is not None and self.is_auth:
             self._receive_task = asyncio.create_task(self._receive_loop())
 
+    async def synthesize_stream(self, text_iterator: AsyncIterator[str]) -> AsyncIterator[bytes]:
+        await self._ensure_connected()
+        
+        if self._receive_task and not self._receive_task.done():
+            self._receive_task.cancel()
+            try:
+                await asyncio.wait_for(self._receive_task, timeout=1.0)
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+            self._receive_task = None
+
+        import re
+        
+        async def text_sender():
+            buffer = ""
+            try:
+                async for token in text_iterator:
+                    buffer += token
+                    while True:
+                        # Match sentence endings or commas (optional: tweak for faster chunks vs better prosody)
+                        match = re.search(r'([.?!,;\n]+(?:\s+|$))', buffer)
+                        if match:
+                            idx = match.end()
+                            chunk_to_send = buffer[:idx].strip()
+                            buffer = buffer[idx:]
+                            if chunk_to_send:
+                                chunk_to_send = self._normalize_roman_numerals(chunk_to_send)
+                                await self.send_text(chunk_to_send, False)
+                        else:
+                            break
+                
+                # End of iterator
+                if buffer.strip():
+                    final_chunk = self._normalize_roman_numerals(buffer.strip())
+                    await self.send_text(final_chunk, True)
+                else:
+                    await self.send_text(" ", True)
+            except Exception as e:
+                logger.error(f"[TTS] text_sender error: {e}")
+                try:
+                    await self.send_text(" ", True)
+                except:
+                    pass
+
+        sender_task = asyncio.create_task(text_sender())
+        
+        chunk_received = False
+        try:
+            while True:
+                if self.ws is None: break
+                try:
+                    response = await asyncio.wait_for(self.ws.recv(), timeout=2.0)
+                    msg = json.loads(response)
+                    
+                    if "error" in msg:
+                        break
+                    if msg.get("status") == "reset":
+                        continue
+                        
+                    if "audio" in msg and msg["audio"]:
+                        try:
+                            pcm = base64.b64decode(msg["audio"])
+                            chunk_received = True
+                            yield pcm
+                        except Exception:
+                            pass
+                    
+                    if msg.get("isFinal", False):
+                        break
+                        
+                except asyncio.TimeoutError:
+                    if sender_task.done() and chunk_received:
+                        # Maybe it is done
+                        pass
+                    continue
+                except websockets.exceptions.ConnectionClosed:
+                    break
+                except Exception as e:
+                    logger.error(f"[TTS] receive error during stream: {e}")
+                    break
+        finally:
+            if not sender_task.done():
+                sender_task.cancel()
+            if self.ws is not None and self.is_auth:
+                self._receive_task = asyncio.create_task(self._receive_loop())
+
     async def close(self):
         async with self._lock:
             if self._receive_task and not self._receive_task.done():

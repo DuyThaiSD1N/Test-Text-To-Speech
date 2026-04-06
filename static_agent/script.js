@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const liveTranscript = document.getElementById('live-transcript');
     const chatArea       = document.getElementById('chat-area');
     const welcomeMsg     = document.getElementById('welcome-msg');
+    const startCallBtn   = document.getElementById('start-call-btn');
     const clearBtn       = document.getElementById('clear-btn');
     const chatInput      = document.getElementById('chat-input');
     const sendBtn        = document.getElementById('send-btn');
@@ -30,32 +31,56 @@ document.addEventListener('DOMContentLoaded', () => {
         return float32;
     }
 
-    async function playAudio(base64Data, sampleRate = 8000) {
-        try {
-            const binaryString = atob(base64Data);
-            const len = binaryString.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
+    let playCtx = null;
+    let audioQueue = [];
+    let isPlayingQueue = false;
+    let shouldCloseWsAfterQueue = false;
+
+    async function playAudioChunk(base64Data, sampleRate) {
+        return new Promise((resolve, reject) => {
+            try {
+                const binaryString = atob(base64Data);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+                const pcm16 = new Int16Array(bytes.buffer);
+                const float32 = pcmToFloat32(pcm16);
+
+                if (!playCtx) playCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const audioBuffer = playCtx.createBuffer(1, float32.length, sampleRate);
+                audioBuffer.getChannelData(0).set(float32);
+
+                const source = playCtx.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(playCtx.destination);
+                source.start(0);
+                
+                source.onended = () => resolve();
+            } catch (e) {
+                console.error('Lỗi phát âm thanh:', e);
+                resolve(); // resolve anyway to continue queue
             }
-            const pcm16 = new Int16Array(bytes.buffer);
-            const float32 = pcmToFloat32(pcm16);
+        });
+    }
 
-            const playCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const audioBuffer = playCtx.createBuffer(1, float32.length, sampleRate);
-            audioBuffer.getChannelData(0).set(float32);
-
-            const source = playCtx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(playCtx.destination);
-            source.start(0);
-            
-            source.onended = () => {
-                playCtx.close();
-            };
-        } catch (e) {
-            console.error('Lỗi phát âm thanh:', e);
+    async function playNextInQueue() {
+        if (audioQueue.length === 0) {
+            isPlayingQueue = false;
+            if (shouldCloseWsAfterQueue) {
+                closeWs();
+                shouldCloseWsAfterQueue = false;
+            }
+            return;
         }
+        isPlayingQueue = true;
+        const msg = audioQueue.shift();
+        await playAudioChunk(msg.audio, msg.sampleRate || 8000);
+        playNextInQueue();
+    }
+
+    function enqueueAudio(msg) {
+        audioQueue.push(msg);
+        if (!isPlayingQueue) playNextInQueue();
     }
 
     function downsample(buffer, fromRate, toRate) {
@@ -264,7 +289,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             case 'thinking':
                 // ASR done, agent is thinking
-                currentAgentBubble = addThinkingBubble();
+                if (!currentAgentBubble) {
+                    currentAgentBubble = addThinkingBubble();
+                }
                 setStatus('Agent đang suy nghĩ...');
                 break;
 
@@ -293,10 +320,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
 
             case 'audio_response':
-                // Đã nhận được audio từ agent, phát ngay
-                playAudio(msg.audio, msg.sampleRate || 8000);
-                // Giờ mới đóng WebSocket hoàn toàn cho phiên này
-                closeWs();
+                enqueueAudio(msg);
+                break;
+
+            case 'audio_end':
+                if (!isPlayingQueue && audioQueue.length === 0) {
+                    closeWs();
+                } else {
+                    shouldCloseWsAfterQueue = true;
+                }
                 break;
 
             case 'error':
@@ -331,6 +363,9 @@ document.addEventListener('DOMContentLoaded', () => {
         currentAgentBubble = null;
         currentTranscript  = '';
         setLiveTranscript('');
+        audioQueue = [];
+        isPlayingQueue = false;
+        shouldCloseWsAfterQueue = false;
     }
 
     // ── Clear history ──────────────────────────────────────────────────────────
@@ -389,4 +424,46 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     micBtn.addEventListener('click', toggleRecord);
+
+    if (startCallBtn) {
+        startCallBtn.addEventListener('click', async () => {
+            if (isProcessing) return;
+            setProcessingState(true);
+            hideWelcome();
+            currentAgentBubble = addThinkingBubble();
+            setStatus('Agent đang gọi...');
+
+            try {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    ws = new WebSocket(`${proto}//${location.host}/ws/agent`);
+                    
+                    await new Promise((resolve, reject) => {
+                        ws.onopen = resolve;
+                        ws.onerror = reject;
+                    });
+                    
+                    ws.onmessage = (event) => handleServerMessage(JSON.parse(event.data));
+                    ws.onerror   = () => { addInfoPill('Lỗi kết nối WebSocket', true); resetUI(); };
+                    ws.onclose   = ()  => { if (!isProcessing) resetUI(); };
+                }
+                
+                const custData = {
+                    title: document.getElementById('cust-title')?.value.trim() || 'Anh/Chị',
+                    name: document.getElementById('cust-name')?.value.trim() || 'Khách hàng',
+                    plate: document.getElementById('cust-plate')?.value.trim() || '',
+                    expire: document.getElementById('cust-expire')?.value.trim() || ''
+                };
+                
+                ws.send(JSON.stringify({ type: 'init_call', data: custData }));
+            } catch (err) {
+                addInfoPill(`Lỗi: ${err.message}`, true);
+                setProcessingState(false);
+                if (currentAgentBubble) {
+                    currentAgentBubble.remove();
+                    currentAgentBubble = null;
+                }
+            }
+        });
+    }
 });

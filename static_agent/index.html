@@ -32,7 +32,26 @@
             <div class="welcome-msg" id="welcome-msg">
                 <div class="welcome-icon">🎙️</div>
                 <h2>Xin chào! Tôi là Voice Agent</h2>
-                <p>Nhấn nút mic và nói chuyện với tôi. Tôi sẽ lắng nghe và trả lời bằng tiếng Việt.</p>
+                <p>Vui lòng nhập thông tin khách hàng trước khi bắt đầu cuộc gọi.</p>
+                <div class="customer-info-form">
+                    <div class="form-group">
+                        <label for="cust-title">Xưng hô (Anh/Chị/Cô/Chú):</label>
+                        <input type="text" id="cust-title" placeholder="VD: Anh">
+                    </div>
+                    <div class="form-group">
+                        <label for="cust-name">Tên chủ sở hữu:</label>
+                        <input type="text" id="cust-name" placeholder="VD: Nguyễn Văn A">
+                    </div>
+                    <div class="form-group">
+                        <label for="cust-plate">Biển số xe:</label>
+                        <input type="text" id="cust-plate" placeholder="VD: 30G-123.45">
+                    </div>
+                    <div class="form-group">
+                        <label for="cust-expire">Ngày hết hạn bảo hiểm:</label>
+                        <input type="date" id="cust-expire">
+                    </div>
+                </div>
+                <button id="start-call-btn" class="send-btn" style="padding: 10px 20px; font-weight: bold; margin-top: 20px; width: auto; border-radius: 20px;">📞 Bắt đầu nhận cuộc gọi</button>
             </div>
         </main>
 

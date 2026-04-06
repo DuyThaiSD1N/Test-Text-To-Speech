@@ -104,3 +104,22 @@ async def process_user_message(text: str, history: List[BaseMessage]) -> str:
     
     # Trả về nội dung tin nhắn cuối cùng (là phản hồi cuối của LLM sau tool)
     return final_state["messages"][-1].content
+
+from typing import AsyncIterator
+
+async def process_user_message_stream(text: str, history: List[BaseMessage]) -> AsyncIterator[str]:
+    """
+    Xử lý text từ ASR và stream từng token của Agent ra ngoài.
+    Trả về AsyncIterator yields string chunks.
+    """
+    user_msg = HumanMessage(content=text)
+    input_state = {"messages": history + [user_msg]}
+    config = {"configurable": {"thread_id": "1"}}
+    
+    # Dùng astream_events để lấy stream từ node LLM
+    async for event in agent.astream_events(input_state, config, version="v2"):
+        if event["event"] == "on_chat_model_stream":
+            chunk = event["data"]["chunk"]
+            if hasattr(chunk, "content") and isinstance(chunk.content, str):
+                if chunk.content:
+                    yield chunk.content
