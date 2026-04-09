@@ -225,23 +225,6 @@ class TTSClient:
                 break
             yield chunk
 
-    def _normalize_roman_numerals(self, text: str):
-        """Chuyển đổi số La Mã sang số Ả Rập để TTS đọc đúng."""
-        roman_map = {
-            'XX': '20', 'XIX': '19', 'XVIII': '18', 'XVII': '17', 'XVI': '16',
-            'XV': '15', 'XIV': '14', 'XIII': '13', 'XII': '12', 'XI': '11',
-            'X': '10', 'IX': '9', 'VIII': '8', 'VII': '7', 'VI': '6',
-            'V': '5', 'IV': '4', 'III': '3', 'II': '2', 'I': '1'
-        }
-        
-        # Regex tìm các số La Mã đứng độc lập hoặc sau các từ như "khóa", "thế kỷ", "thứ"
-        # Tránh khớp với các từ bình thường có chứa chữ cái La Mã
-        for roman, arabic in roman_map.items():
-            # Sử dụng boundary \b để đảm bảo khớp nguyên từ
-            pattern = rf'\b{roman}\b'
-            text = re.sub(pattern, arabic, text)
-        return text
-
     def _split_text_by_sentences(self, text: str, max_length: int = 500):
         if len(text) <= max_length:
             return [text]
@@ -321,9 +304,6 @@ class TTSClient:
 
     async def synthesize(self, text: str) -> AsyncIterator[bytes]:
         await self._ensure_connected()
-        
-        # Tiền xử lý văn bản (Số La Mã -> Số đếm)
-        text = self._normalize_roman_numerals(text)
         
         # Dừng receive loop cũ nếu đang chạy
         if self._receive_task and not self._receive_task.done():
@@ -457,7 +437,6 @@ class TTSClient:
                             chunk_to_send = buffer[:idx].strip()
                             buffer = buffer[idx:]
                             if chunk_to_send:
-                                chunk_to_send = self._normalize_roman_numerals(chunk_to_send)
                                 await self.send_text(chunk_to_send, False)
                                 first_chunk_sent = True
                         else:
@@ -465,8 +444,7 @@ class TTSClient:
                 
                 # End of iterator
                 if buffer.strip():
-                    final_chunk = self._normalize_roman_numerals(buffer.strip())
-                    await self.send_text(final_chunk, True)
+                    await self.send_text(buffer.strip(), True)
                 else:
                     await self.send_text(" ", True)
             except asyncio.CancelledError:

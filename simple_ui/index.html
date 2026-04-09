@@ -205,6 +205,38 @@
             color: white;
         }
 
+        .btn-record {
+            background: #f59e0b;
+            color: white;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .btn-record.recording {
+            background: #ef4444;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+
+            50% {
+                transform: scale(1.05);
+                box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+            }
+        }
+
         .welcome {
             text-align: center;
             padding: 40px 20px;
@@ -284,7 +316,11 @@
 
         <div class="input-area">
             <div class="input-row">
-                <input type="text" id="messageInput" placeholder="Nhập tin nhắn..." onkeypress="handleKeyPress(event)">
+                <button class="btn-record" id="recordBtn" onclick="toggleRecording()" title="Nhấn để nói">
+                    🎤
+                </button>
+                <input type="text" id="messageInput" placeholder="Nhập tin nhắn hoặc nhấn 🎤 để nói..."
+                    onkeypress="handleKeyPress(event)">
                 <button class="btn-primary" onclick="sendMessage()">Gửi</button>
                 <button class="btn-danger" onclick="clearChat()">Xóa</button>
             </div>
@@ -298,10 +334,16 @@
         let audioQueue = [];
         let isPlayingQueue = false;
 
+        // Recording state
+        let isRecording = false;
+        let mediaRecorder = null;
+        let audioStream = null;
+
         const chatArea = document.getElementById('chatArea');
         const welcome = document.getElementById('welcome');
         const messageInput = document.getElementById('messageInput');
         const status = document.getElementById('status');
+        const recordBtn = document.getElementById('recordBtn');
 
         // ═══════════════════════════════════════════════════════════════════════
         // AUDIO FUNCTIONS
@@ -408,6 +450,17 @@
 
         function handleMessage(msg) {
             switch (msg.type) {
+                case 'recording_started':
+                    console.log('[Record] Server confirmed recording started');
+                    break;
+
+                case 'transcript':
+                    console.log('[Transcript]', msg.isFinal ? 'Final:' : 'Partial:', msg.text);
+                    if (msg.isFinal) {
+                        addUserBubble(msg.text);
+                    }
+                    break;
+
                 case 'thinking':
                     setStatus('💭 Đang suy nghĩ...', '#667eea');
                     addThinkingBubble();
@@ -510,6 +563,178 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // RECORDING FUNCTIONS
+        // ═══════════════════════════════════════════════════════════════════════
+        async function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                await startRecording();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                console.log('[Record] Starting...');
+
+                // Initialize audio context
+                initAudio();
+
+                // Request microphone access
+                audioStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    }
+                });
+
+                // Create MediaRecorder
+                mediaRecorder = new MediaRecorder(audioStream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
+
+                const audioChunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = async () => {
+                    console.log('[Record] Stopped, processing...');
+
+                    // Convert to PCM and send to server
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    await processAudioBlob(audioBlob);
+                };
+
+                // Start recording
+                mediaRecorder.start(100); // Collect data every 100ms
+                isRecording = true;
+                recordBtn.classList.add('recording');
+                recordBtn.textContent = '⏹️';
+                setStatus('🎤 Đang ghi âm...', '#ef4444');
+
+                // Send audio_start to server
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'audio_start' }));
+                }
+
+                console.log('[Record] ✅ Started');
+
+            } catch (error) {
+                console.error('[Record] Error:', error);
+                alert('Không thể truy cập microphone: ' + error.message);
+            }
+        }
+
+        function stopRecording() {
+            if (!isRecording || !mediaRecorder) return;
+
+            console.log('[Record] Stopping...');
+
+            isRecording = false;
+            recordBtn.classList.remove('recording');
+            recordBtn.textContent = '🎤';
+            setStatus('⏳ Đang xử lý...', '#f59e0b');
+
+            mediaRecorder.stop();
+
+            // Stop all tracks
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
+            }
+        }
+
+        async function processAudioBlob(blob) {
+            try {
+                console.log('[Audio] Processing blob, size:', blob.size);
+
+                // Convert WebM to PCM using Web Audio API
+                const arrayBuffer = await blob.arrayBuffer();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+                // Resample to 8000 Hz (ASR expects 8kHz)
+                const targetSampleRate = 8000;
+                const resampled = resampleAudio(audioBuffer, targetSampleRate);
+
+                // Convert to PCM16 (Int16Array)
+                const pcm16 = float32ToPCM16(resampled);
+
+                // Send to server in chunks
+                const chunkSize = 1600; // 100ms at 8kHz * 2 bytes
+                for (let i = 0; i < pcm16.length; i += chunkSize) {
+                    const chunk = pcm16.slice(i, i + chunkSize);
+                    const base64 = arrayBufferToBase64(chunk.buffer);
+
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: 'audio_chunk',
+                            audio: base64
+                        }));
+                    }
+                }
+
+                // Send audio_end
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'audio_end' }));
+                }
+
+                console.log('[Audio] ✅ Sent to server');
+
+            } catch (error) {
+                console.error('[Audio] Processing error:', error);
+                setStatus('❌ Lỗi xử lý audio', '#ef4444');
+            }
+        }
+
+        function resampleAudio(audioBuffer, targetSampleRate) {
+            const sourceRate = audioBuffer.sampleRate;
+            const sourceData = audioBuffer.getChannelData(0);
+
+            if (sourceRate === targetSampleRate) {
+                return sourceData;
+            }
+
+            const ratio = sourceRate / targetSampleRate;
+            const newLength = Math.round(sourceData.length / ratio);
+            const result = new Float32Array(newLength);
+
+            for (let i = 0; i < newLength; i++) {
+                const srcIndex = i * ratio;
+                const srcIndexFloor = Math.floor(srcIndex);
+                const srcIndexCeil = Math.min(srcIndexFloor + 1, sourceData.length - 1);
+                const t = srcIndex - srcIndexFloor;
+
+                result[i] = sourceData[srcIndexFloor] * (1 - t) + sourceData[srcIndexCeil] * t;
+            }
+
+            return result;
+        }
+
+        function float32ToPCM16(float32Array) {
+            const pcm16 = new Int16Array(float32Array.length);
+            for (let i = 0; i < float32Array.length; i++) {
+                const s = Math.max(-1, Math.min(1, float32Array[i]));
+                pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            return pcm16;
+        }
+
+        function arrayBufferToBase64(buffer) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
         }
 
         // ═══════════════════════════════════════════════════════════════════════

@@ -31,6 +31,8 @@ from ai_logic import process_user_message_stream_simple
 from langchain_core.messages import HumanMessage, AIMessage
 from text_to_speech import TTSClient
 from redis_store import RedisConversationStore
+from speech_to_text import ASRClient
+import base64
 
 # TTS Client
 TTS_WS_URL = os.getenv("TTS_WS_URL")
@@ -50,6 +52,17 @@ USE_REDIS = os.getenv("USE_REDIS", "false").lower() == "true"
 
 if USE_REDIS:
     redis_store = RedisConversationStore()
+
+# ASR Client
+ASR_GRPC_URI = os.getenv("ASR_GRPC_URI")
+ASR_TOKEN = os.getenv("ASR_TOKEN")
+
+asr_client = None
+if ASR_GRPC_URI and ASR_TOKEN:
+    asr_client = ASRClient(uri=ASR_GRPC_URI, token=ASR_TOKEN)
+    logger.info(f"[ASR] Initialized with URI: {ASR_GRPC_URI}")
+else:
+    logger.warning("[ASR] Not configured - voice input disabled")
 
 @app.on_event("startup")
 async def startup_event():
@@ -98,6 +111,10 @@ async def agent_websocket(websocket: WebSocket):
     conversation_history = []
     customer_context = ""
     customer_title = "Quý khách"
+    
+    # Audio streaming state
+    audio_queue = asyncio.Queue()
+    is_recording = False
     
     try:
         if redis_store and redis_store.redis:
@@ -285,6 +302,156 @@ async def agent_websocket(websocket: WebSocket):
                         logger.info("[TTS] ✅ Greeting audio sent")
                     except Exception as tts_err:
                         logger.error(f"[TTS] Error: {tts_err}")
+            
+            elif msg_type == "audio_start":
+                # Bắt đầu ghi âm
+                if not asr_client:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "ASR không được cấu hình"
+                    })
+                    continue
+                
+                logger.info("[Audio] Recording started")
+                is_recording = True
+                audio_queue = asyncio.Queue()
+                
+                await websocket.send_json({
+                    "type": "recording_started"
+                })
+            
+            elif msg_type == "audio_chunk":
+                # Nhận audio chunk từ client
+                if not is_recording:
+                    continue
+                
+                audio_data = msg.get("audio", "")
+                if audio_data:
+                    # Decode base64 to bytes
+                    audio_bytes = base64.b64decode(audio_data)
+                    await audio_queue.put(audio_bytes)
+            
+            elif msg_type == "audio_end":
+                # Kết thúc ghi âm và xử lý
+                if not is_recording:
+                    continue
+                
+                logger.info("[Audio] Recording stopped, processing...")
+                is_recording = False
+                
+                # Signal end of stream
+                await audio_queue.put(None)
+                
+                # Send thinking status
+                await websocket.send_json({"type": "thinking"})
+                
+                # Process audio with ASR
+                try:
+                    async def audio_generator():
+                        while True:
+                            chunk = await audio_queue.get()
+                            if chunk is None:
+                                break
+                            yield chunk
+                        yield None  # Sentinel
+                    
+                    transcript_parts = []
+                    async for result in asr_client.stream_audio(audio_generator()):
+                        if "transcript" in result and result["transcript"]:
+                            transcript_parts.append(result["transcript"])
+                            logger.info(f"[ASR] Partial: {result['transcript']}")
+                            
+                            # Send partial transcript to client
+                            await websocket.send_json({
+                                "type": "transcript",
+                                "text": result["transcript"],
+                                "isFinal": result.get("isFinal", False)
+                            })
+                        
+                        if result.get("error"):
+                            logger.error(f"[ASR] Error: {result['error']}")
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"Lỗi ASR: {result['error']}"
+                            })
+                            break
+                    
+                    # Get final transcript
+                    final_transcript = " ".join(transcript_parts).strip()
+                    
+                    if not final_transcript:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Không nhận diện được giọng nói"
+                        })
+                        continue
+                    
+                    logger.info(f"[ASR] Final transcript: {final_transcript}")
+                    
+                    # Process with AI (same as text_input)
+                    response_parts = []
+                    async for token in process_user_message_stream_simple(
+                        final_transcript, 
+                        conversation_history, 
+                        customer_context, 
+                        customer_title
+                    ):
+                        response_parts.append(token)
+                    
+                    response = "".join(response_parts).strip()
+                    
+                    if not response:
+                        response = "Xin lỗi, em không hiểu. Anh/chị có thể nói rõ hơn được không?"
+                    
+                    logger.info(f"[Agent] Response: {repr(response[:100])}...")
+                    
+                    # Save to Redis
+                    user_msg = HumanMessage(content=final_transcript)
+                    ai_msg = AIMessage(content=response)
+                    
+                    try:
+                        if redis_store and redis_store.redis:
+                            await redis_store.save_message(session_id, user_msg)
+                            await redis_store.save_message(session_id, ai_msg)
+                            logger.info(f"[Redis] Saved 2 messages for session {session_id}")
+                    except Exception as e:
+                        logger.warning(f"[Redis] Failed to save messages: {e}")
+                    
+                    # Update local history
+                    conversation_history.append(user_msg)
+                    conversation_history.append(ai_msg)
+                    
+                    # Send response
+                    await websocket.send_json({
+                        "type": "agent_response",
+                        "text": response
+                    })
+                    logger.info("[Agent] ✅ Response sent to client")
+                    
+                    # TTS - Send audio
+                    if tts_client:
+                        try:
+                            logger.info("[TTS] Starting synthesis...")
+                            async for chunk in tts_client.synthesize(response):
+                                if chunk:
+                                    audio_base64 = base64.b64encode(chunk).decode('utf-8')
+                                    await websocket.send_json({
+                                        "type": "audio_response",
+                                        "audio": audio_base64,
+                                        "sampleRate": 8000
+                                    })
+                            
+                            await websocket.send_json({"type": "audio_end"})
+                            logger.info("[TTS] ✅ Audio sent")
+                        except Exception as tts_err:
+                            logger.error(f"[TTS] Error: {tts_err}")
+                
+                except Exception as e:
+                    logger.error(f"[ASR] Error: {e}", exc_info=True)
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"Lỗi xử lý audio: {str(e)}"
+                    })
             
             elif msg_type == "clear_history":
                 # ═══════════════════════════════════════════════════════
