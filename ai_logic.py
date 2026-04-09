@@ -22,34 +22,21 @@ class AgentState(TypedDict):
     # add_messages giúp cộng dồn lịch sử hội thoại thay vì ghi đè
     messages: Annotated[List[BaseMessage], add_messages]
     customer_context: str
-
-# ─── Tools ───────────────────────────────────────────────────────────────────
-@tool
-def get_weather(location: str):
-    """Tra cứu thời tiết tại một địa điểm cụ thể."""
-    weather_data = {
-        "hà nội": "28°C, Trời nắng đẹp, độ ẩm 65%",
-        "hồ chí minh": "32°C, Trời nhiều mây, có thể có mưa rào",
-        "đà nẵng": "26°C, Trời quang đãng, gió nhẹ"
-    }
-    loc = location.lower()
-    for city, info in weather_data.items():
-        if city in loc:
-            return f"Thời tiết tại {location}: {info}"
-    
-    return f"Hiện tại tôi không có dữ liệu thời tiết tại {location}, nhưng dự báo chung là trời khá đẹp."
-
-tools = [get_weather]
-tool_node = ToolNode(tools)
+    customer_title: str
 
 # ─── LLM ──────────────────────────────────────────────────────────────────────
+_llm_instance = None
+
 def get_llm():
-    api_key = os.getenv("OPENAI_API_KEY")
-    model   = os.getenv("AGENT_MODEL", "gpt-4o-mini")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY phải được cấu hình trong .env")
-    # Bind tools vào LLM. Dùng temperature=0 cho tool calling chính xác hơn.
-    return ChatOpenAI(model=model, api_key=api_key, temperature=0).bind_tools(tools)
+    """Trả về singleton LLM instance, chỉ khởi tạo một lần."""
+    global _llm_instance
+    if _llm_instance is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        model   = os.getenv("AGENT_MODEL", "gpt-4o-mini")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY phải được cấu hình trong .env")
+        _llm_instance = ChatOpenAI(model=model, api_key=api_key, temperature=0.2, streaming=True)
+    return _llm_instance
 
 from bot_scenario import INSURANCE_SYSTEM_PROMPT
 
@@ -58,38 +45,31 @@ def get_system_prompt() -> str:
     return os.getenv("AGENT_SYSTEM_PROMPT", INSURANCE_SYSTEM_PROMPT)
 
 # ─── Nodes ────────────────────────────────────────────────────────────────────
-def call_agent(state: AgentState):
+async def call_agent(state: AgentState):
     """Node này gọi LLM để quyết định hành động tiếp theo."""
     llm = get_llm()
     system_content = get_system_prompt()
+    title = state.get("customer_title", "anh/chị")
+    
+    # Thay thế triệt để danh xưng chung trong template bằng danh xưng thực tế
+    system_content = system_content.replace("{gender}", title.lower())
+    
     context = state.get("customer_context", "")
     if context:
-        system_content += f"\n\n[QUAN TRỌNG - THÔNG TIN KHÁCH HÀNG HIỆN TẠI]\n{context}\n(Bạn luôn được phép dùng thông tin này để xưng hô và giải đáp mà không cần tra cứu thêm)."
+        system_content += f"\n\n[THÔNG TIN KHÁCH HÀNG]\n{context}\n(Chỉ thị MẠNH: TUYỆT ĐỐI KHÔNG xưng hô chung chung là 'anh/chị'. BẮT BUỘC thay thế hoàn toàn các từ 'anh/chị' bằng '{title}' trong mọi câu phản hồi. Bạn đang nói chuyện trực tiếp với {title})."
     
     system = SystemMessage(content=system_content)
     messages = [system] + state["messages"]
-    response = llm.invoke(messages)
+    response = await llm.ainvoke(messages)
     return {"messages": [response]}
 
 # ─── Build Graph ──────────────────────────────────────────────────────────────
 def build_agent():
     workflow = StateGraph(AgentState)
     
-    # Định nghĩa các node
     workflow.add_node("agent", call_agent)
-    workflow.add_node("tools", tool_node)
-    
-    # Xác định luồng đi
     workflow.set_entry_point("agent")
-    
-    # Rẽ nhánh: Nếu LLM gọi tool -> tools, nếu LLM trả lời xong -> END
-    workflow.add_conditional_edges(
-        "agent",
-        tools_condition,
-    )
-    
-    # Sau khi gọi tool xong thì quay lại agent để tổng hợp câu trả lời
-    workflow.add_edge("tools", "agent")
+    workflow.add_edge("agent", END)
     
     return workflow.compile()
 
@@ -102,6 +82,7 @@ async def process_user_message(text: str, history: List[BaseMessage]) -> str:
     """
     # LangGraph State khởi tạo với history + tin nhắn mới
     user_msg = HumanMessage(content=text)
+    # Rất thô sơ, parse title từ context nhưng ta sẽ sửa ở server cho sạch hơn sau
     input_state = {"messages": history + [user_msg]}
     
     # Chạy graph
@@ -113,19 +94,55 @@ async def process_user_message(text: str, history: List[BaseMessage]) -> str:
 
 from typing import AsyncIterator
 
-async def process_user_message_stream(text: str, history: List[BaseMessage], context: str = "") -> AsyncIterator[str]:
-    """
-    Xử lý text từ ASR và stream từng token của Agent ra ngoài.
-    Trả về AsyncIterator yields string chunks.
-    """
+async def process_user_message_stream_simple(text: str, history: List[BaseMessage], context: str = "", title: str = "anh/chị") -> AsyncIterator[str]:
+    """Phiên bản stream đơn giản hơn, ổn định hơn."""
     user_msg = HumanMessage(content=text)
-    input_state = {"messages": history + [user_msg], "customer_context": context}
-    config = {"configurable": {"thread_id": "1"}}
+    input_state = {"messages": history + [user_msg], "customer_context": context, "customer_title": title}
     
-    # Dùng astream_events để lấy stream từ node LLM
-    async for event in agent.astream_events(input_state, config, version="v2"):
-        if event["event"] == "on_chat_model_stream":
-            chunk = event["data"]["chunk"]
-            if hasattr(chunk, "content") and isinstance(chunk.content, str):
-                if chunk.content:
-                    yield chunk.content
+    # Thay vì dùng events phức tạp, ta dùng astream trên chính đồ thị
+    # Nó sẽ trả về state updates khi kết thúc node
+    # Sau đó ta yield nội dung cho TTS. 
+    # Nếu muốn REAL token streaming, ta phải dùng llm trực tiếp.
+    
+    print(f"[AI Logic] Processing: {repr(text)}")
+    response = ""
+    try:
+        # Chạy graph bằng ainvoke (không streaming token, tránh lỗi vòng lặp/treo)
+        final_state = await agent.ainvoke(input_state)
+        response = final_state["messages"][-1].content
+        print(f"[AI Logic] Response generated: {repr(response)}")
+        
+        # Cắt thành từng cụm từ để yield (giả lập stream cho TTS)
+        # TTS synthesize_stream sẽ nhận các cụm này và xử lý
+        import re
+        parts = re.split(r'(?<=[,!?.])\s+', response)
+        for part in parts:
+            if part.strip():
+                yield part + " "
+    except Exception as e:
+        print(f"[AI Logic] Error: {e}")
+        yield f"Xin lỗi, em đang gặp chút trục trặc: {str(e)}"
+
+async def fast_stream(text: str, history: List[BaseMessage], context: str = "", title: str = "anh/chị") -> AsyncIterator[str]:
+    """
+    Dùng LLM trực tiếp (không qua LangGraph) để lấy phản hồi nhanh nhất có thể.
+    Thích hợp cho câu chào đầu tiên hoặc các câu trả lời đơn giản không cần tools.
+    Dùng temperature=0 để giảm thời gian nhận token đầu tiên (TTFT).
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    model   = os.getenv("AGENT_MODEL", "gpt-4o-mini")
+    # Dùng instance riêng temperature=0 cho tốc độ tối đa
+    fast_llm = ChatOpenAI(model=model, api_key=api_key, temperature=0, streaming=True)
+    
+    system_content = get_system_prompt()
+    title_lower = title.lower()
+    system_content = system_content.replace("{gender}", title_lower)
+    
+    if context:
+        system_content += f"\n\n[THÔNG TIN KHÁCH HÀNG]\n{context}\n(Chỉ thị: Xưng hô với khách là '{title}')."
+    
+    messages = [SystemMessage(content=system_content)] + history + [HumanMessage(content=text)]
+    
+    async for chunk in fast_llm.astream(messages):
+        if chunk.content:
+            yield chunk.content

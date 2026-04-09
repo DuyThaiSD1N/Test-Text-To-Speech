@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Agent - Simple</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            width: 100%;
+            height: 600px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            padding: 20px;
+            border-bottom: 2px solid #f0f0f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            color: #667eea;
+        }
+
+        .status {
+            padding: 5px 15px;
+            background: #e0e7ff;
+            border-radius: 20px;
+            font-size: 14px;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f9fafb;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .message.user .avatar {
+            background: #667eea;
+        }
+
+        .message.agent .avatar {
+            background: #10b981;
+        }
+
+        .bubble {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            line-height: 1.5;
+        }
+
+        .message.user .bubble {
+            background: #667eea;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.agent .bubble {
+            background: white;
+            color: #1f2937;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .thinking {
+            display: inline-flex;
+            gap: 4px;
+        }
+
+        .thinking span {
+            width: 8px;
+            height: 8px;
+            background: #667eea;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .thinking span:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+
+        .thinking span:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            80%,
+            100% {
+                transform: scale(0);
+            }
+
+            40% {
+                transform: scale(1);
+            }
+        }
+
+        .input-area {
+            padding: 20px;
+            border-top: 2px solid #f0f0f0;
+            background: white;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            border-color: #667eea;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .welcome {
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .welcome h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Voice Agent</h1>
+            <div class="status" id="status">Sẵn sàng</div>
+        </div>
+
+        <div class="chat-area" id="chatArea">
+            <div class="welcome" id="welcome">
+                <h2>🎙️ Chào mừng đến với Voice Agent</h2>
+                <p>Nhập thông tin khách hàng để bắt đầu</p>
+
+                <div style="max-width: 400px; margin: 20px auto;">
+                    <div class="form-group">
+                        <label>Xưng hô:</label>
+                        <input type="text" id="custTitle" placeholder="Anh/Chị/Cô/Chú" value="Anh">
+                    </div>
+                    <div class="form-group">
+                        <label>Tên khách hàng:</label>
+                        <input type="text" id="custName" placeholder="Nguyễn Văn A" value="Thái">
+                    </div>
+                    <div class="form-group">
+                        <label>Biển số xe:</label>
+                        <input type="text" id="custPlate" placeholder="30G-123.45" value="30G-12345">
+                    </div>
+                    <div class="form-group">
+                        <label>Ngày hết hạn BH:</label>
+                        <input type="date" id="custExpire" value="2024-01-01">
+                    </div>
+
+                    <div class="controls">
+                        <button class="btn-success" onclick="startCall()" style="flex: 1">
+                            📞 Bắt đầu cuộc gọi
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="input-row">
+                <input type="text" id="messageInput" placeholder="Nhập tin nhắn..." onkeypress="handleKeyPress(event)">
+                <button class="btn-primary" onclick="sendMessage()">Gửi</button>
+                <button class="btn-danger" onclick="clearChat()">Xóa</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isProcessing = false;
+        let audioContext = null;
+        let audioQueue = [];
+        let isPlayingQueue = false;
+
+        const chatArea = document.getElementById('chatArea');
+        const welcome = document.getElementById('welcome');
+        const messageInput = document.getElementById('messageInput');
+        const status = document.getElementById('status');
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // AUDIO FUNCTIONS
+        // ═══════════════════════════════════════════════════════════════════════
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                console.log('[Audio] Context initialized');
+            }
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        }
+
+        function pcmToFloat32(pcm16) {
+            const float32 = new Float32Array(pcm16.length);
+            for (let i = 0; i < pcm16.length; i++) {
+                float32[i] = pcm16[i] / 32768.0;
+            }
+            return float32;
+        }
+
+        async function playAudioChunk(base64Data, sampleRate) {
+            return new Promise((resolve) => {
+                try {
+                    initAudio();
+
+                    const binaryString = atob(base64Data);
+                    const len = binaryString.length;
+                    const bytes = new Uint8Array(len);
+                    for (let i = 0; i < len; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+
+                    const pcm16 = new Int16Array(bytes.buffer);
+                    const float32 = pcmToFloat32(pcm16);
+
+                    const audioBuffer = audioContext.createBuffer(1, float32.length, sampleRate);
+                    audioBuffer.getChannelData(0).set(float32);
+
+                    const source = audioContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(audioContext.destination);
+                    source.onended = resolve;
+                    source.start(0);
+                } catch (e) {
+                    console.error('[Audio] Play error:', e);
+                    resolve();
+                }
+            });
+        }
+
+        async function processAudioQueue() {
+            if (isPlayingQueue || audioQueue.length === 0) return;
+
+            isPlayingQueue = true;
+            console.log('[Audio] Processing queue:', audioQueue.length, 'chunks');
+
+            while (audioQueue.length > 0) {
+                const chunk = audioQueue.shift();
+                await playAudioChunk(chunk.audio, chunk.sampleRate || 8000);
+            }
+
+            isPlayingQueue = false;
+            console.log('[Audio] Queue complete');
+        }
+
+        function enqueueAudio(msg) {
+            audioQueue.push(msg);
+            processAudioQueue();
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // WEBSOCKET
+        // ═══════════════════════════════════════════════════════════════════════
+        function connect() {
+            const wsUrl = `ws://${location.host}/ws/agent`;
+            console.log('[WS] Connecting to:', wsUrl);
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log('[WS] ✅ Connected');
+                setStatus('✅ Đã kết nối', '#10b981');
+            };
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                console.log('[WS] Received:', msg.type);
+                handleMessage(msg);
+            };
+
+            ws.onerror = (err) => {
+                console.error('[WS] Error:', err);
+                setStatus('❌ Lỗi kết nối', '#ef4444');
+            };
+
+            ws.onclose = () => {
+                console.log('[WS] Closed');
+                setStatus('⚠️ Mất kết nối', '#f59e0b');
+                ws = null;
+            };
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'thinking':
+                    setStatus('💭 Đang suy nghĩ...', '#667eea');
+                    addThinkingBubble();
+                    break;
+
+                case 'agent_response':
+                    console.log('[Agent] Response:', msg.text.substring(0, 50) + '...');
+                    setStatus('✅ Đã kết nối', '#10b981');
+                    updateLastBubble(msg.text);
+                    isProcessing = false;
+                    break;
+
+                case 'audio_response':
+                    console.log('[Audio] 🔊 Received chunk');
+                    enqueueAudio(msg);
+                    break;
+
+                case 'audio_end':
+                    console.log('[Audio] ✅ Playback complete');
+                    break;
+
+                case 'error':
+                    console.error('[Agent] Error:', msg.message);
+                    setStatus('❌ Lỗi', '#ef4444');
+                    alert('Lỗi: ' + msg.message);
+                    removeThinkingBubble();
+                    isProcessing = false;
+                    break;
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // UI FUNCTIONS
+        // ═══════════════════════════════════════════════════════════════════════
+        function setStatus(text, color) {
+            status.textContent = text;
+            if (color) status.style.background = color;
+            if (color) status.style.color = 'white';
+        }
+
+        function hideWelcome() {
+            if (welcome) welcome.style.display = 'none';
+        }
+
+        function addUserBubble(text) {
+            hideWelcome();
+            const div = document.createElement('div');
+            div.className = 'message user';
+            div.innerHTML = `
+                <div class="avatar">👤</div>
+                <div class="bubble">${escapeHtml(text)}</div>
+            `;
+            chatArea.appendChild(div);
+            scrollToBottom();
+        }
+
+        function addThinkingBubble() {
+            hideWelcome();
+            const div = document.createElement('div');
+            div.className = 'message agent thinking-message';
+            div.innerHTML = `
+                <div class="avatar">🤖</div>
+                <div class="bubble">
+                    <div class="thinking">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            `;
+            chatArea.appendChild(div);
+            scrollToBottom();
+        }
+
+        function updateLastBubble(text) {
+            const thinkingMsg = chatArea.querySelector('.thinking-message');
+            if (thinkingMsg) {
+                thinkingMsg.className = 'message agent';
+                thinkingMsg.querySelector('.bubble').innerHTML = escapeHtml(text);
+            } else {
+                const div = document.createElement('div');
+                div.className = 'message agent';
+                div.innerHTML = `
+                    <div class="avatar">🤖</div>
+                    <div class="bubble">${escapeHtml(text)}</div>
+                `;
+                chatArea.appendChild(div);
+            }
+            scrollToBottom();
+        }
+
+        function removeThinkingBubble() {
+            const thinkingMsg = chatArea.querySelector('.thinking-message');
+            if (thinkingMsg) thinkingMsg.remove();
+        }
+
+        function scrollToBottom() {
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // ACTIONS
+        // ═══════════════════════════════════════════════════════════════════════
+        async function sendMessage() {
+            const text = messageInput.value.trim();
+            if (!text || isProcessing) return;
+
+            console.log('[Send] Message:', text);
+            messageInput.value = '';
+            addUserBubble(text);
+            isProcessing = true;
+
+            // Initialize audio on user interaction
+            initAudio();
+
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                connect();
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+            ws.send(JSON.stringify({
+                type: 'text_input',
+                text: text
+            }));
+        }
+
+        async function startCall() {
+            console.log('[Call] Starting');
+            hideWelcome();
+            isProcessing = true;
+
+            // Initialize audio on user interaction
+            initAudio();
+
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                connect();
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+            const data = {
+                title: document.getElementById('custTitle').value,
+                name: document.getElementById('custName').value,
+                plate: document.getElementById('custPlate').value,
+                expire: document.getElementById('custExpire').value
+            };
+
+            console.log('[Call] Data:', data);
+            ws.send(JSON.stringify({
+                type: 'init_call',
+                data: data
+            }));
+        }
+
+        function clearChat() {
+            chatArea.innerHTML = '';
+            chatArea.appendChild(welcome);
+            welcome.style.display = 'block';
+            audioQueue = [];
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'clear_history' }));
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // INIT
+        // ═══════════════════════════════════════════════════════════════════════
+        window.onload = () => {
+            console.log('[Init] 🚀 Voice Agent loaded');
+            connect();
+        };
+    </script>
+</body>
+
+</html>
