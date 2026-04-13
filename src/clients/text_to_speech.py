@@ -33,6 +33,42 @@ class TTSClient:
         self.result_queue = None
         self.is_auth = False
         self.sample_rate = 8000
+    
+    def _preprocess_text(self, text: str) -> str:
+        """
+        Xử lý text trước khi gửi cho TTS.
+        CHỈ tách số thành từng chữ số khi đọc BIỂN SỐ XE.
+        Các số khác (ngày tháng, số tiền, số lượng) để nguyên cho TTS đọc tự nhiên.
+        """
+        import re
+        
+        # Pattern biển số xe Việt Nam:
+        # - Bắt đầu bằng 2 chữ số (mã tỉnh): 30, 51, 29, etc.
+        # - Theo sau là 1-2 chữ cái: A, B, AB, etc.
+        # - Kết thúc bằng 4-5 chữ số: 12345, 1234
+        # - Có thể có dấu gạch ngang hoặc chấm ở giữa
+        # Ví dụ: 30A-12345, 51B-123.45, 29C12345, 92AB-12345
+        
+        def split_plate_number(match):
+            """Tách biển số xe thành từng ký tự riêng lẻ"""
+            plate = match.group(0)
+            # Xóa dấu gạch ngang và dấu chấm trong biển số
+            plate = plate.replace('-', '').replace('.', '')
+            # Tách từng ký tự với khoảng trắng
+            return ' '.join(list(plate))
+        
+        # Tìm và tách biển số xe TRƯỚC KHI xóa dấu gạch ngang
+        # Pattern: 2 chữ số + 1-2 chữ cái + (optional: - hoặc .) + 4-5 chữ số
+        plate_pattern = r'\b\d{2}[A-Z]{1,2}[-.]?\d{4,5}\b'
+        text = re.sub(plate_pattern, split_plate_number, text, flags=re.IGNORECASE)
+        
+        # SAU ĐÓ mới xóa dấu "-" còn lại (không phải trong biển số)
+        text = text.replace("-", " ")
+        
+        # Xóa khoảng trắng thừa
+        text = " ".join(text.split())
+        
+        return text
 
     async def connect(self):
         """Connect to WebSocket and authenticate"""
@@ -54,15 +90,27 @@ class TTSClient:
             
             self.result_queue = asyncio.Queue(maxsize=100)
             
-            try:
-                self.ws = await asyncio.wait_for(
-                    websockets.connect(self.ws_url),
-                    timeout=10.0
-                )
-            except asyncio.TimeoutError:
-                raise Exception("[TTS] Connection timeout")
-            except Exception as e:
-                raise Exception(f"[TTS] Failed to connect WebSocket: {e}")
+            max_retries = 3
+            retry_delay = 0.5  # giảm delay để fail nhanh hơn
+            
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"[TTS] Connection attempt {attempt + 1}/{max_retries} to {self.ws_url}")
+                    self.ws = await asyncio.wait_for(
+                        websockets.connect(self.ws_url),
+                        timeout=10.0  # Tăng lên 10s để ổn định hơn
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    if attempt == max_retries - 1:
+                        raise Exception("[TTS] Connection timeout")
+                    logger.warning(f"[TTS] Connection attempt {attempt + 1} timed out, retrying in {retry_delay}s...")
+                    await asyncio.sleep(retry_delay)
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise Exception(f"[TTS] Failed to connect WebSocket: {e}")
+                    logger.warning(f"[TTS] Connection attempt {attempt + 1} failed: {e}, retrying in {retry_delay}s...")
+                    await asyncio.sleep(retry_delay)
             
             logger.info(f"voice {self.voice} tempo {self.tempo}")
             auth_msg = {
@@ -213,23 +261,6 @@ class TTSClient:
                 break
             yield chunk
 
-    def _normalize_roman_numerals(self, text: str):
-        """Chuyển đổi số La Mã sang số Ả Rập để TTS đọc đúng."""
-        roman_map = {
-            'XX': '20', 'XIX': '19', 'XVIII': '18', 'XVII': '17', 'XVI': '16',
-            'XV': '15', 'XIV': '14', 'XIII': '13', 'XII': '12', 'XI': '11',
-            'X': '10', 'IX': '9', 'VIII': '8', 'VII': '7', 'VI': '6',
-            'V': '5', 'IV': '4', 'III': '3', 'II': '2', 'I': '1'
-        }
-        
-        # Regex tìm các số La Mã đứng độc lập hoặc sau các từ như "khóa", "thế kỷ", "thứ"
-        # Tránh khớp với các từ bình thường có chứa chữ cái La Mã
-        for roman, arabic in roman_map.items():
-            # Sử dụng boundary \b để đảm bảo khớp nguyên từ
-            pattern = rf'\b{roman}\b'
-            text = re.sub(pattern, arabic, text)
-        return text
-
     def _split_text_by_sentences(self, text: str, max_length: int = 500):
         if len(text) <= max_length:
             return [text]
@@ -292,22 +323,43 @@ class TTSClient:
         return [c.strip() for c in very_final_chunks if c.strip()]
 
     async def _ensure_connected(self):
-        if self.ws is None:
+        is_connected = False
+        if self.ws is not None:
+            try:
+                # Kiểm tra xem connection còn sống không
+                if self.ws.open:
+                    is_connected = True
+                else:
+                    logger.info("[TTS] Connection is closed, reconnecting...")
+                    self.ws = None
+            except Exception:
+                self.ws = None
+        
+        if not is_connected:
             await self.connect()
 
     async def synthesize(self, text: str) -> AsyncIterator[bytes]:
         await self._ensure_connected()
         
-        # Tiền xử lý văn bản (Số La Mã -> Số đếm)
-        text = self._normalize_roman_numerals(text)
+        # Preprocess text trước khi gửi
+        text = self._preprocess_text(text)
         
+        # Dừng receive loop cũ nếu đang chạy
         if self._receive_task and not self._receive_task.done():
             self._receive_task.cancel()
             try:
-                await asyncio.wait_for(self._receive_task, timeout=1.0)
-            except Exception:
+                await asyncio.wait_for(self._receive_task, timeout=0.5)
+            except:
                 pass
             self._receive_task = None
+        
+        # Clear queue cũ
+        if self.result_queue:
+            while not self.result_queue.empty():
+                try:
+                    self.result_queue.get_nowait()
+                except:
+                    break
         
         text_chunks = self._split_text_by_sentences(text, self.max_text_length)
         
@@ -316,6 +368,7 @@ class TTSClient:
             try:
                 await self.send_text(chunk_text, is_last_chunk)
             except Exception as e:
+                logger.error(f"[TTS] Send error: {e}")
                 try:
                     await self._ensure_connected()
                     await self.send_text(chunk_text, is_last_chunk)
@@ -323,13 +376,14 @@ class TTSClient:
                     continue
             
             chunk_received = False
-            timeout_seconds = 2
+            timeout_seconds = 3
             max_timeout_count = 3
             timeout_count = 0
             
             while True:
                 try:
-                    if self.ws is None: break
+                    if self.ws is None: 
+                        break
                     
                     response = await asyncio.wait_for(
                         self.ws.recv(),
@@ -338,9 +392,128 @@ class TTSClient:
                     msg = json.loads(response)
                     
                     timeout_count = 0
-                    if "error" in msg: break
-                    if msg.get("status") == "reset": continue
+                    if "error" in msg: 
+                        logger.error(f"[TTS] Server error: {msg['error']}")
+                        break
+                    if msg.get("status") == "reset": 
+                        continue
                     
+                    if "audio" in msg and msg["audio"]:
+                        try:
+                            pcm = base64.b64decode(msg["audio"])
+                            chunk_received = True
+                            yield pcm
+                        except Exception as e:
+                            logger.error(f"[TTS] Decode error: {e}")
+                            pass
+                    
+                    if msg.get("isFinal", False):
+                        break
+                        
+                except asyncio.TimeoutError:
+                    timeout_count += 1
+                    if not chunk_received:
+                        if timeout_count < max_timeout_count: 
+                            continue
+                        else: 
+                            logger.warning(f"[TTS] Timeout waiting for audio")
+                            break
+                    else:
+                        if timeout_count >= 2: 
+                            break
+                        timeout_seconds = 1
+                        continue
+                except websockets.exceptions.ConnectionClosed:
+                    logger.error("[TTS] Connection closed during synthesis")
+                    break
+                except Exception as e:
+                    logger.error(f"[TTS] Receive error: {e}")
+                    break
+        
+        # Restart receive loop sau khi xong
+        if self.ws is not None and self.is_auth:
+            self._receive_task = asyncio.create_task(self._receive_loop())
+
+    async def synthesize_stream(self, text_iterator: AsyncIterator[str]) -> AsyncIterator[bytes]:
+        await self._ensure_connected()
+        
+        if self._receive_task and not self._receive_task.done():
+            self._receive_task.cancel()
+            try:
+                await asyncio.wait_for(self._receive_task, timeout=1.0)
+            except Exception:
+                pass
+            self._receive_task = None
+
+        import re
+        
+        async def text_sender():
+            buffer = ""
+            first_chunk_sent = False
+            try:
+                async for token in text_iterator:
+                    buffer += token
+                    while True:
+                        pattern = r'([.?!,;\n]+(?:\s+|$))'
+                        match = re.search(pattern, buffer)
+                        
+                        should_send = False
+                        if match:
+                            idx = match.end()
+                            should_send = True
+                        elif not first_chunk_sent and len(buffer.split()) >= 3:
+                            # Flush sớm sau 3 từ để giảm độ trễ âm thanh đầu tiên
+                            last_space = buffer.rfind(' ')
+                            if last_space > 0:
+                                idx = last_space + 1
+                                should_send = True
+                        elif not first_chunk_sent and len(buffer) >= 20:
+                            # Fallback: flush nếu buffer dài hơn 20 ký tự
+                            idx = len(buffer)
+                            should_send = True
+                        
+                        if should_send:
+                            chunk_to_send = buffer[:idx].strip()
+                            buffer = buffer[idx:]
+                            if chunk_to_send:
+                                # Preprocess chunk trước khi gửi
+                                chunk_to_send = self._preprocess_text(chunk_to_send)
+                                await self.send_text(chunk_to_send, False)
+                                first_chunk_sent = True
+                        else:
+                            break
+                
+                # End of iterator
+                if buffer.strip():
+                    buffer = self._preprocess_text(buffer.strip())
+                    await self.send_text(buffer, True)
+                else:
+                    await self.send_text(" ", True)
+            except asyncio.CancelledError:
+                pass
+            except BaseException as e:
+                import traceback
+                traceback.print_exc()
+                try:
+                    await self.send_text(" ", True)
+                except:
+                    pass
+
+        sender_task = asyncio.create_task(text_sender())
+        
+        chunk_received = False
+        try:
+            while True:
+                if self.ws is None: break
+                try:
+                    response = await asyncio.wait_for(self.ws.recv(), timeout=2.0)
+                    msg = json.loads(response)
+                    
+                    if "error" in msg:
+                        break
+                    if msg.get("status") == "reset":
+                        continue
+                        
                     if "audio" in msg and msg["audio"]:
                         try:
                             pcm = base64.b64decode(msg["audio"])
@@ -353,21 +526,20 @@ class TTSClient:
                         break
                         
                 except asyncio.TimeoutError:
-                    timeout_count += 1
-                    if not chunk_received:
-                        if timeout_count < max_timeout_count: continue
-                        else: break
-                    else:
-                        if timeout_count >= 2: break
-                        timeout_seconds = 1
-                        continue
+                    if sender_task.done() and chunk_received:
+                        # Maybe it is done
+                        pass
+                    continue
                 except websockets.exceptions.ConnectionClosed:
                     break
-                except Exception:
+                except Exception as e:
+                    logger.error(f"[TTS] receive error during stream: {e}")
                     break
-        
-        if self.ws is not None and self.is_auth:
-            self._receive_task = asyncio.create_task(self._receive_loop())
+        finally:
+            if not sender_task.done():
+                sender_task.cancel()
+            if self.ws is not None and self.is_auth:
+                self._receive_task = asyncio.create_task(self._receive_loop())
 
     async def close(self):
         async with self._lock:

@@ -10,8 +10,8 @@ import logging
 import struct
 from typing import AsyncGenerator
 
-import streaming_voice_pb2
-import streaming_voice_pb2_grpc
+from src.proto import streaming_voice_pb2
+from src.proto import streaming_voice_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
