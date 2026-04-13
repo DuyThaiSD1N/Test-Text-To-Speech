@@ -17,8 +17,14 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
+# Copy application code and static files
+COPY simple_server.py .
+COPY simple_ui ./simple_ui
+COPY src ./src
+COPY .env.example .env
+
+# Create logs directory
+RUN mkdir -p logs
 
 # Expose port (Render will override with $PORT)
 EXPOSE 8002

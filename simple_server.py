@@ -109,6 +109,23 @@ async def shutdown_event():
     logger.info("[Server] Shutdown complete")
 
 
+@app.get("/")
+async def root():
+    """Root endpoint - serve static UI"""
+    from fastapi.responses import FileResponse
+    return FileResponse("simple_ui/index.html")
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Render"""
+    return {"status": "healthy", "service": "voice-agent-server"}
+
+
+# Mount static files for assets
+app.mount("/static", StaticFiles(directory="simple_ui"), name="static")
+
+
 @app.websocket("/ws/agent")
 async def agent_websocket(websocket: WebSocket):
     await websocket.accept()
@@ -219,9 +236,6 @@ async def agent_websocket(websocket: WebSocket):
         # Cleanup
         message_handler.cleanup()
 
-
-# Mount static files
-app.mount("/", StaticFiles(directory="simple_ui", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn
