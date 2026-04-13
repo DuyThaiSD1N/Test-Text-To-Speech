@@ -60,13 +60,15 @@ def get_llm():
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY phải được cấu hình trong .env hoặc environment variables")
         
+        # Set env var để OpenAI client tự động pick up
+        os.environ["OPENAI_API_KEY"] = api_key
+        
         try:
             _llm_instance = ChatOpenAI(
                 model=model,
-                openai_api_key=api_key,
                 temperature=0.2,
                 streaming=True,
-                request_timeout=30
+                timeout=30
             )
             logger.info(f"[LLM] Initialized with model: {model}")
         except Exception as e:
@@ -144,14 +146,17 @@ async def fast_stream(
     max_history = int(os.getenv("MAX_HISTORY_MESSAGES", "10"))
     recent_history = history[-max_history:] if len(history) > max_history else history
     
+    # Ensure API key is in environment
+    if not os.getenv("OPENAI_API_KEY"):
+        raise RuntimeError("OPENAI_API_KEY not found in environment")
+    
     try:
         fast_llm = ChatOpenAI(
             model=model,
-            openai_api_key=api_key,
             temperature=0,
             streaming=True,
             max_tokens=200,
-            request_timeout=30
+            timeout=30
         )
     except Exception as e:
         logger.error(f"[LLM] Failed to create fast_llm instance: {e}")
