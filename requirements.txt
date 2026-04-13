@@ -14,10 +14,10 @@ openai==1.12.0
 # LangSmith for tracing (optional)
 langsmith>=0.0.87
 
-# gRPC for ASR (optional)
-grpcio==1.60.0
-grpcio-tools==1.60.0
-protobuf==4.25.2
+# gRPC for ASR (optional) - using newer version with better wheel support
+grpcio>=1.62.0
+grpcio-tools>=1.62.0
+protobuf>=4.25.0
 
 # Utilities
 aiofiles==23.2.1
