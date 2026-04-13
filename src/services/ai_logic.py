@@ -64,11 +64,11 @@ def get_llm():
         os.environ["OPENAI_API_KEY"] = api_key
         
         try:
+            # Workaround for 'proxies' error - use minimal parameters
             _llm_instance = ChatOpenAI(
                 model=model,
                 temperature=0.2,
-                streaming=True,
-                timeout=30
+                streaming=True
             )
             logger.info(f"[LLM] Initialized with model: {model}")
         except Exception as e:
@@ -151,12 +151,12 @@ async def fast_stream(
         raise RuntimeError("OPENAI_API_KEY not found in environment")
     
     try:
+        # Workaround for 'proxies' error - minimal parameters
         fast_llm = ChatOpenAI(
             model=model,
             temperature=0,
             streaming=True,
-            max_tokens=200,
-            timeout=30
+            max_tokens=200
         )
     except Exception as e:
         logger.error(f"[LLM] Failed to create fast_llm instance: {e}")
