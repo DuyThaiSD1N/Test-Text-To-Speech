@@ -446,7 +446,9 @@
         // WEBSOCKET
         // ═══════════════════════════════════════════════════════════════════════
         function connect() {
-            const wsUrl = `ws://${location.host}/ws/agent`;
+            // Auto-detect protocol (ws:// for http, wss:// for https)
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${location.host}/ws/agent`;
             console.log('[WS] Connecting to:', wsUrl);
 
             ws = new WebSocket(wsUrl);
