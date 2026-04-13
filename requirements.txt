@@ -4,12 +4,12 @@ uvicorn[standard]==0.27.0
 websockets==12.0
 python-dotenv==1.0.0
 
-# AI & LangChain
-langchain==0.1.6
-langchain-openai==0.0.8
-langchain-core==0.1.23
-langgraph==0.0.20
-openai==1.12.0
+# AI & LangChain - Let pip resolve compatible versions
+langchain>=0.1.6,<0.2
+langchain-openai>=0.0.8,<0.1
+langchain-core>=0.1.27,<0.2
+langgraph>=0.0.20,<0.1
+openai>=1.12.0,<2.0
 
 # LangSmith for tracing (optional)
 langsmith>=0.0.87
