@@ -5,7 +5,10 @@ services:
     region: singapore
     plan: free
     dockerfilePath: ./Dockerfile
+    dockerContext: .
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: OPENAI_API_KEY
         sync: false
       - key: TTS_WS_URL
