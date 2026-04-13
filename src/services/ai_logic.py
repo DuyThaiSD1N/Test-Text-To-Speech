@@ -57,7 +57,11 @@ def get_llm():
         api_key = os.getenv("OPENAI_API_KEY")
         model   = os.getenv("AGENT_MODEL", "gpt-4o-mini")
         
-        if not api_key:
+        # Debug logging
+        if api_key:
+            logger.info(f"[LLM] API key found: {api_key[:10]}...")
+        else:
+            logger.error("[LLM] OPENAI_API_KEY not found in environment!")
             raise RuntimeError("OPENAI_API_KEY phải được cấu hình trong .env hoặc environment variables")
         
         # Set env var để OpenAI client tự động pick up
@@ -70,9 +74,9 @@ def get_llm():
                 temperature=0.2,
                 streaming=True
             )
-            logger.info(f"[LLM] Initialized with model: {model}")
+            logger.info(f"[LLM] ✅ Initialized successfully with model: {model}")
         except Exception as e:
-            logger.error(f"[LLM] Failed to initialize: {e}")
+            logger.error(f"[LLM] ❌ Failed to initialize: {e}")
             raise
     
     return _llm_instance
