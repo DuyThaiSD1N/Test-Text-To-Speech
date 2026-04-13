@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: voice-agent-server
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python simple_server.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: AGENT_SERVER_PORT
+        value: 8002
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TTS_WS_URL
+        sync: false
+      - key: TTS_API_KEY
+        sync: false
+      - key: TTS_VOICE
+        value: thuyanh-north
+      - key: ASR_GRPC_URI
+        sync: false
+      - key: ASR_TOKEN
+        sync: false
+      - key: AGENT_MODEL
+        value: gpt-4o-mini
+      - key: USE_FAST_PROMPT
+        value: true
+      - key: MAX_HISTORY_MESSAGES
+        value: 10
+      - key: ENABLE_LLM_TRACING
+        value: true
+      - key: LANGCHAIN_TRACING_V2
+        value: false
