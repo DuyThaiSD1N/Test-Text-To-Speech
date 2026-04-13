@@ -2,7 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-import streaming_voice_pb2 as streaming__voice__pb2
+from src.proto import streaming_voice_pb2 as streaming__voice__pb2
 
 
 class StreamVoiceStub(object):

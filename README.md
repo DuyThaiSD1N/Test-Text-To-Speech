@@ -154,11 +154,43 @@ AGENT_SERVER_PORT=8003
 - ✅ Xưng hô đúng với khách hàng
 - ✅ Kịch bản tư vấn bảo hiểm
 - ✅ Giao diện đẹp, responsive
+- ✅ LLM Tracing (JSONL local file)
+- ✅ LangSmith Integration (Cloud dashboard)
 
 ### Đang phát triển
 - 🔄 Ghi âm cuộc gọi
 - 🔄 Export lịch sử
 - 🔄 Analytics dashboard
+
+## 🔍 Debug & Monitoring
+
+### LLM Tracing (Local)
+
+Hệ thống tự động ghi log tất cả LLM calls vào file `logs/llm_traces.jsonl`:
+
+```bash
+# Bật tracing trong .env
+ENABLE_LLM_TRACING=true
+LLM_TRACE_FILE=logs/llm_traces.jsonl
+
+# Xem traces
+python export_traces.py --recent 10
+```
+
+### LangSmith (Cloud Dashboard)
+
+Theo dõi và debug LLM reasoning trên dashboard:
+
+```bash
+# Cấu hình trong .env
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=lsv2_pt_your-api-key
+LANGCHAIN_PROJECT=voice-chatbot-insurance
+```
+
+**Xem chi tiết**: `LANGSMITH_SETUP.md`
+
+**Dashboard**: https://smith.langchain.com/
 
 ## 📝 Ghi chú
 
@@ -171,6 +203,7 @@ AGENT_SERVER_PORT=8003
 
 - `README.md` - Tài liệu chính (file này)
 - `VOICE_GUIDE.md` - Hướng dẫn chi tiết về voice input
+- `LANGSMITH_SETUP.md` - Hướng dẫn cài đặt LangSmith tracing
 - `.env.example` - Template cấu hình
 
 ## 📞 Liên hệ

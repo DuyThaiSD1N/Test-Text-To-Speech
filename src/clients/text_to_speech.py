@@ -33,6 +33,42 @@ class TTSClient:
         self.result_queue = None
         self.is_auth = False
         self.sample_rate = 8000
+    
+    def _preprocess_text(self, text: str) -> str:
+        """
+        Xử lý text trước khi gửi cho TTS.
+        CHỈ tách số thành từng chữ số khi đọc BIỂN SỐ XE.
+        Các số khác (ngày tháng, số tiền, số lượng) để nguyên cho TTS đọc tự nhiên.
+        """
+        import re
+        
+        # Pattern biển số xe Việt Nam:
+        # - Bắt đầu bằng 2 chữ số (mã tỉnh): 30, 51, 29, etc.
+        # - Theo sau là 1-2 chữ cái: A, B, AB, etc.
+        # - Kết thúc bằng 4-5 chữ số: 12345, 1234
+        # - Có thể có dấu gạch ngang hoặc chấm ở giữa
+        # Ví dụ: 30A-12345, 51B-123.45, 29C12345, 92AB-12345
+        
+        def split_plate_number(match):
+            """Tách biển số xe thành từng ký tự riêng lẻ"""
+            plate = match.group(0)
+            # Xóa dấu gạch ngang và dấu chấm trong biển số
+            plate = plate.replace('-', '').replace('.', '')
+            # Tách từng ký tự với khoảng trắng
+            return ' '.join(list(plate))
+        
+        # Tìm và tách biển số xe TRƯỚC KHI xóa dấu gạch ngang
+        # Pattern: 2 chữ số + 1-2 chữ cái + (optional: - hoặc .) + 4-5 chữ số
+        plate_pattern = r'\b\d{2}[A-Z]{1,2}[-.]?\d{4,5}\b'
+        text = re.sub(plate_pattern, split_plate_number, text, flags=re.IGNORECASE)
+        
+        # SAU ĐÓ mới xóa dấu "-" còn lại (không phải trong biển số)
+        text = text.replace("-", " ")
+        
+        # Xóa khoảng trắng thừa
+        text = " ".join(text.split())
+        
+        return text
 
     async def connect(self):
         """Connect to WebSocket and authenticate"""
@@ -305,6 +341,9 @@ class TTSClient:
     async def synthesize(self, text: str) -> AsyncIterator[bytes]:
         await self._ensure_connected()
         
+        # Preprocess text trước khi gửi
+        text = self._preprocess_text(text)
+        
         # Dừng receive loop cũ nếu đang chạy
         if self._receive_task and not self._receive_task.done():
             self._receive_task.cancel()
@@ -437,6 +476,8 @@ class TTSClient:
                             chunk_to_send = buffer[:idx].strip()
                             buffer = buffer[idx:]
                             if chunk_to_send:
+                                # Preprocess chunk trước khi gửi
+                                chunk_to_send = self._preprocess_text(chunk_to_send)
                                 await self.send_text(chunk_to_send, False)
                                 first_chunk_sent = True
                         else:
@@ -444,7 +485,8 @@ class TTSClient:
                 
                 # End of iterator
                 if buffer.strip():
-                    await self.send_text(buffer.strip(), True)
+                    buffer = self._preprocess_text(buffer.strip())
+                    await self.send_text(buffer, True)
                 else:
                     await self.send_text(" ", True)
             except asyncio.CancelledError:

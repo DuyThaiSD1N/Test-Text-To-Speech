@@ -11,6 +11,9 @@ langchain-core==0.1.23
 langgraph==0.0.20
 openai==1.12.0
 
+# LangSmith for tracing (optional)
+langsmith>=0.0.87
+
 # gRPC for ASR (optional)
 grpcio==1.60.0
 grpcio-tools==1.60.0
