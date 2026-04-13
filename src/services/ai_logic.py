@@ -56,15 +56,22 @@ def get_llm():
     if _llm_instance is None:
         api_key = os.getenv("OPENAI_API_KEY")
         model   = os.getenv("AGENT_MODEL", "gpt-4o-mini")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY phải được cấu hình trong .env")
         
-        _llm_instance = ChatOpenAI(
-            model=model, 
-            api_key=api_key, 
-            temperature=0.2, 
-            streaming=True
-        )
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY phải được cấu hình trong .env hoặc environment variables")
+        
+        try:
+            _llm_instance = ChatOpenAI(
+                model=model,
+                openai_api_key=api_key,
+                temperature=0.2,
+                streaming=True,
+                request_timeout=30
+            )
+            logger.info(f"[LLM] Initialized with model: {model}")
+        except Exception as e:
+            logger.error(f"[LLM] Failed to initialize: {e}")
+            raise
     
     return _llm_instance
 
@@ -137,13 +144,18 @@ async def fast_stream(
     max_history = int(os.getenv("MAX_HISTORY_MESSAGES", "10"))
     recent_history = history[-max_history:] if len(history) > max_history else history
     
-    fast_llm = ChatOpenAI(
-        model=model, 
-        api_key=api_key, 
-        temperature=0, 
-        streaming=True,
-        max_tokens=200  # Giới hạn response ngắn gọn
-    )
+    try:
+        fast_llm = ChatOpenAI(
+            model=model,
+            openai_api_key=api_key,
+            temperature=0,
+            streaming=True,
+            max_tokens=200,
+            request_timeout=30
+        )
+    except Exception as e:
+        logger.error(f"[LLM] Failed to create fast_llm instance: {e}")
+        raise
     
     # Track timing
     start_time = time.time()
