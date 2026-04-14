@@ -69,16 +69,8 @@ else:
 @app.on_event("startup")
 async def startup_event():
     """Startup tasks"""
-    # Pre-warm LLM connection
-    logger.info("[LLM] Pre-warming connection...")
-    try:
-        from src.services.ai_logic import get_llm
-        from langchain_core.messages import HumanMessage
-        llm = get_llm()
-        await llm.ainvoke([HumanMessage(content="test")])
-        logger.info("[LLM] ✅ Pre-warmed successfully")
-    except Exception as e:
-        logger.warning(f"[LLM] Pre-warm failed: {e}")
+    # Skip LLM pre-warming to avoid 'proxies' error on some platforms
+    logger.info("[LLM] Skipping pre-warm (will initialize on first request)")
     
     # Pre-connect to TTS server
     if tts_client:
