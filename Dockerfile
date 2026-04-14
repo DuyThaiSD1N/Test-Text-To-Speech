@@ -26,7 +26,7 @@ COPY . .
 RUN mkdir -p logs
 
 # Railway automatically sets PORT env variable
-EXPOSE ${PORT:-8002}
+EXPOSE 8002
 
-# Start server
-CMD uvicorn simple_server:app --host 0.0.0.0 --port ${PORT:-8002}
+# Start server - Railway will inject PORT at runtime
+CMD ["sh", "-c", "uvicorn simple_server:app --host 0.0.0.0 --port ${PORT:-8002}"]

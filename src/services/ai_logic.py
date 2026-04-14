@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 # Import OpenAI directly
 from openai import AsyncOpenAI
 
+# Import message classes
+from src.services.redis_store import HumanMessage, AIMessage, Message
+
 load_dotenv()
 
 import logging
@@ -33,19 +36,13 @@ from src.config.bot_scenario import INSURANCE_SYSTEM_PROMPT
 # ─── System Prompt ─────────────────────────────────────────────────────────────
 def get_system_prompt() -> str:
     """
-    Trả về system prompt dựa trên cấu hình.
+    Trả về system prompt.
     """
-    use_fast_prompt = os.getenv("USE_FAST_PROMPT", "true").lower() == "true"
-    
-    if use_fast_prompt:
-        from src.config.bot_scenario_fast import INSURANCE_SYSTEM_PROMPT_FAST
-        return INSURANCE_SYSTEM_PROMPT_FAST
-    else:
-        return os.getenv("AGENT_SYSTEM_PROMPT", INSURANCE_SYSTEM_PROMPT)
+    return os.getenv("AGENT_SYSTEM_PROMPT", INSURANCE_SYSTEM_PROMPT)
 
 async def fast_stream(
     text: str, 
-    history: List[BaseMessage], 
+    history: List[Message], 
     context: str = "", 
     title: str = "anh/chị",
     session_id: str = ""
@@ -95,8 +92,8 @@ async def fast_stream(
         stream = await client.chat.completions.create(
             model=model,
             messages=messages,
-            temperature=0,
-            max_tokens=200,
+            temperature=0.3,  # Tăng lên để tự nhiên hơn
+            max_tokens=300,   # Tăng lên để đủ chỗ trả lời
             stream=True
         )
         

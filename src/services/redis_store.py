@@ -6,10 +6,26 @@ import redis.asyncio as redis
 import json
 import os
 import logging
-from typing import List, Optional, Tuple
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+from typing import List, Optional, Tuple, Dict
 
 logger = logging.getLogger(__name__)
+
+
+# Simple message classes to replace langchain
+class Message:
+    """Base message class"""
+    def __init__(self, content: str):
+        self.content = content
+
+
+class HumanMessage(Message):
+    """Human message"""
+    pass
+
+
+class AIMessage(Message):
+    """AI message"""
+    pass
 
 
 class RedisConversationStore:
@@ -43,7 +59,7 @@ class RedisConversationStore:
     async def save_message(
         self, 
         session_id: str, 
-        message: BaseMessage,
+        message: Message,
         ttl: int = 3600
     ):
         """
@@ -77,7 +93,7 @@ class RedisConversationStore:
         self, 
         session_id: str,
         max_messages: Optional[int] = None
-    ) -> List[BaseMessage]:
+    ) -> List[Message]:
         """
         Get conversation history from Redis
         

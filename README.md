@@ -1,21 +1,52 @@
-# 🤖 Voice Agent - AI Insurance Assistant
+# 🎙️ Voice Agent - AI Chatbot Bảo Hiểm Xe
 
-Hệ thống tổng đài viên ảo hỗ trợ tư vấn bảo hiểm xe sử dụng AI với khả năng:
-- ✅ Chat bằng text
-- ✅ Nói trực tiếp qua microphone (Voice Input)
-- ✅ Phát âm thanh (TTS)
-- ✅ Lưu lịch sử hội thoại (Redis)
-- ✅ Giao diện web đơn giản, dễ sử dụng
+Voice Agent là hệ thống chatbot AI chuyên nghiệp cho tư vấn bảo hiểm xe qua điện thoại, hỗ trợ cả text và voice input/output với khả năng nhận diện từ chối thông minh.
 
-## 📋 Yêu cầu
+## ✨ Tính năng chính
 
-- Python 3.9+
-- OpenAI API Key (bắt buộc)
-- Redis (tùy chọn - để lưu conversation)
-- TTS Service (tùy chọn - để có âm thanh)
-- ASR Service (tùy chọn - để nhận diện giọng nói)
+- 🤖 **AI Agent thông minh** - Sử dụng OpenAI GPT-4o-mini với prompt tối ưu cho tư vấn bảo hiểm
+- 🎯 **Nhận diện từ chối** - Tự động phát hiện và đếm số lần khách từ chối (2-rejection strategy)
+- ⏱️ **Silence timeout** - Tự động nhắc nhở khi khách im lặng (2 lần, sau đó kết thúc)
+- 🎤 **Speech-to-Text (ASR)** - Nhận diện giọng nói qua gRPC
+- 🔊 **Text-to-Speech (TTS)** - Giọng nói tự nhiên qua WebSocket
+- 💬 **Real-time WebSocket** - Giao tiếp thời gian thực
+- 📝 **LLM tracing** - Logging chi tiết với LangSmith (optional)
+- 🗄️ **Redis storage** - Lưu trữ conversation history (optional)
+- 🚀 **Deploy-ready** - Sẵn sàng deploy lên Railway
 
-## 🚀 Cài đặt nhanh
+## 📁 Cấu trúc Project
+
+```
+.
+├── src/
+│   ├── clients/              # TTS, ASR clients
+│   │   ├── text_to_speech.py    # TTS WebSocket client
+│   │   └── speech_to_text.py    # ASR gRPC client
+│   ├── config/               # System prompts
+│   │   └── bot_scenario.py      # Prompt chính cho agent
+│   ├── proto/                # gRPC protobuf definitions
+│   ├── services/             # Business logic
+│   │   ├── ai_logic.py          # OpenAI integration (no LangChain)
+│   │   ├── call_handler.py      # Rejection & farewell detection
+│   │   ├── message_handler.py   # WebSocket message handling
+│   │   ├── audio_processor.py   # Audio recording & ASR
+│   │   └── redis_store.py       # Conversation storage
+│   └── utils/                # Utilities
+│       ├── llm_tracer.py        # LLM call tracing
+│       └── export_traces.py     # Export traces to JSON
+├── simple_ui/                # Web UI (HTML/JS)
+├── logs/                     # LLM traces (JSONL format)
+├── docs/                     # Documentation
+│   └── DEPLOY.md                # Railway deployment guide
+├── tests/                    # Test files (unit, integration, e2e)
+├── simple_server.py          # Main FastAPI server
+├── requirements.txt          # Python dependencies
+├── Dockerfile                # Docker build config
+├── railway.toml              # Railway config
+└── .env.example              # Environment variables template
+```
+
+## 🚀 Quick Start
 
 ### 1. Cài đặt dependencies
 
@@ -23,194 +54,201 @@ Hệ thống tổng đài viên ảo hỗ trợ tư vấn bảo hiểm xe sử d
 pip install -r requirements.txt
 ```
 
-### 2. Cấu hình
-
-Sao chép file `.env.example` thành `.env`:
+### 2. Cấu hình environment
 
 ```bash
-copy .env.example .env
+cp .env.example .env
+# Chỉnh sửa .env với API keys của bạn
 ```
 
-Mở file `.env` và điền thông tin:
+### 3. Chạy server
 
-```env
-# BẮT BUỘC - OpenAI API
-OPENAI_API_KEY=sk-your-openai-api-key-here
-AGENT_MODEL=gpt-4o-mini
-
-# TÙY CHỌN - Redis (Lưu conversation)
-USE_REDIS=false
-REDIS_URL=redis://localhost:6379
-
-# TÙY CHỌN - TTS (Text-to-Speech)
-TTS_WS_URL=ws://your-tts-host:port
-TTS_API_KEY=your-tts-api-key
-TTS_VOICE=thuyanh-north
-
-# TÙY CHỌN - ASR (Speech Recognition)
-ASR_GRPC_URI=your-asr-host:port
-ASR_TOKEN=your-asr-token
-
-# Server Port
-AGENT_SERVER_PORT=8002
-```
-
-### 3. Khởi động
-
-```powershell
-# Cách 1: Dùng script (khuyến nghị)
-.\START_SIMPLE.ps1
-
-# Cách 2: Chạy trực tiếp
+```bash
 python simple_server.py
 ```
 
-### 4. Truy cập
+Server sẽ chạy tại: http://localhost:8002
 
-Mở trình duyệt: **http://localhost:8002**
+## 🌐 Deploy lên Railway
 
-## 📖 Hướng dẫn sử dụng
+Xem hướng dẫn chi tiết tại: [docs/DEPLOY.md](docs/DEPLOY.md)
 
-### Chat bằng Text
-1. Nhập thông tin khách hàng (Xưng hô, Tên, Biển số xe, Ngày hết hạn)
-2. Nhấn "📞 Bắt đầu cuộc gọi" → Agent sẽ tự động chào
-3. Nhập text vào ô chat để trò chuyện
-4. Agent sẽ trả lời bằng text và âm thanh (nếu có TTS)
-
-### Chat bằng Voice (🎤)
-1. Click nút 🎤 (màu cam) để bắt đầu ghi âm
-2. Cho phép browser truy cập microphone
-3. Nói vào microphone
-4. Click nút ⏹️ (màu đỏ) để dừng
-5. Đợi ASR nhận diện → Agent trả lời
-
-**Chi tiết**: Xem file `VOICE_GUIDE.md`
-
-## 📁 Cấu trúc dự án
-
-```
-.
-├── simple_server.py          # Backend server (FastAPI + WebSocket)
-├── simple_ui/
-│   └── index.html           # Frontend UI (HTML + CSS + JS)
-├── ai_logic.py              # Logic xử lý AI (LangGraph + OpenAI)
-├── bot_scenario.py          # Kịch bản trả lời của bot
-├── text_to_speech.py        # TTS Client (WebSocket)
-├── speech_to_text.py        # ASR Client (gRPC)
-├── redis_store.py           # Redis conversation storage
-├── streaming_voice_pb2.py   # Protobuf cho ASR
-├── streaming_voice_pb2_grpc.py
-├── docker-compose.yml       # Redis container setup
-├── .env                     # Cấu hình (không commit)
-├── .env.example             # Template cấu hình
-├── requirements.txt         # Dependencies
-├── START_SIMPLE.ps1         # Script khởi động
-├── README.md                # Tài liệu chính
-└── VOICE_GUIDE.md           # Hướng dẫn voice input
-```
-
-## 🔧 Xử lý sự cố
-
-### Agent không phản hồi
-
-1. Kiểm tra `OPENAI_API_KEY` trong `.env`
-2. Kiểm tra kết nối internet
-3. Xem log trong terminal server
-4. Mở Browser Console (F12) xem lỗi
-
-### Không có âm thanh
-
-1. Kiểm tra `TTS_WS_URL` và `TTS_API_KEY` trong `.env`
-2. Agent vẫn hoạt động bình thường, chỉ không có âm thanh
-3. Xem log trong terminal: `[TTS] Pre-connected successfully!`
-
-### Không nhận diện được giọng nói
-
-1. Kiểm tra `ASR_GRPC_URI` và `ASR_TOKEN` trong `.env`
-2. Cho phép browser truy cập microphone
-3. Kiểm tra volume microphone
-4. Xem log: `[ASR] Initialized with URI: ...`
-5. Chi tiết: Xem `VOICE_GUIDE.md`
-
-### Port 8002 đã được sử dụng
-
-```powershell
-# Tìm và dừng tiến trình
-Get-NetTCPConnection -LocalPort 8002 | Select-Object -ExpandProperty OwningProcess -Unique
-Stop-Process -Id <PID> -Force
-
-# Hoặc đổi port trong .env
-AGENT_SERVER_PORT=8003
-```
-
-## 🎯 Tính năng
-
-### Đã hoàn thành
-- ✅ Chat text với AI
-- ✅ Voice input qua microphone (🎤)
-- ✅ Text-to-Speech (TTS)
-- ✅ Speech-to-Text (ASR)
-- ✅ Lưu lịch sử hội thoại (Redis)
-- ✅ Xưng hô đúng với khách hàng
-- ✅ Kịch bản tư vấn bảo hiểm
-- ✅ Giao diện đẹp, responsive
-- ✅ LLM Tracing (JSONL local file)
-- ✅ LangSmith Integration (Cloud dashboard)
-
-### Đang phát triển
-- 🔄 Ghi âm cuộc gọi
-- 🔄 Export lịch sử
-- 🔄 Analytics dashboard
-
-## 🔍 Debug & Monitoring
-
-### LLM Tracing (Local)
-
-Hệ thống tự động ghi log tất cả LLM calls vào file `logs/llm_traces.jsonl`:
+### Quick deploy:
 
 ```bash
-# Bật tracing trong .env
-ENABLE_LLM_TRACING=true
-LLM_TRACE_FILE=logs/llm_traces.jsonl
+# Cài Railway CLI
+npm install -g @railway/cli
 
-# Xem traces
-python export_traces.py --recent 10
+# Đăng nhập
+railway login
+
+# Deploy
+railway init
+railway up
+railway domain
 ```
 
-### LangSmith (Cloud Dashboard)
+## 🔧 Cấu hình
 
-Theo dõi và debug LLM reasoning trên dashboard:
+### Environment Variables
+
+Xem file `.env.example` để biết tất cả các biến môi trường có thể cấu hình.
+
+**Bắt buộc:**
+- `OPENAI_API_KEY` - OpenAI API key
+
+**AI Configuration:**
+- `AGENT_MODEL` - Model name (mặc định: `gpt-4o-mini`)
+- `MAX_HISTORY_MESSAGES` - Giới hạn conversation history (mặc định: `10`)
+
+**TTS (Text-to-Speech) - Optional:**
+- `TTS_WS_URL` - WebSocket URL của TTS service
+- `TTS_API_KEY` - API key cho TTS
+- `TTS_VOICE` - Voice ID (mặc định: `thuyanh-north`)
+
+**ASR (Speech-to-Text) - Optional:**
+- `ASR_GRPC_URI` - gRPC URI của ASR service
+- `ASR_TOKEN` - Token cho ASR authentication
+
+**Redis - Optional:**
+- `USE_REDIS` - Enable Redis storage (`true`/`false`)
+- `REDIS_URL` - Redis connection URL
+
+**LangSmith Tracing - Optional:**
+- `LANGCHAIN_TRACING_V2` - Enable LangSmith (`true`/`false`)
+- `LANGCHAIN_API_KEY` - LangSmith API key
+- `LANGCHAIN_PROJECT` - Project name
+
+## 🎯 Kịch bản Agent
+
+Agent được thiết kế với 2-rejection strategy:
+
+1. **Lần từ chối thứ 1**: Thuyết phục nhẹ + Đề nghị gửi thông tin
+2. **Lần từ chối thứ 2**: Xác nhận hiểu + Cảm ơn + Kết thúc
+
+**Nhận diện từ chối:**
+- Trực tiếp: "không cần", "không muốn", "thôi"
+- Gián tiếp: "nếu tôi không muốn thì sao", "để sau", "đang bận"
+- Đơn giản: "không", "thôi"
+
+**Silence timeout:**
+- Sau khi bot nói xong, chờ 3 giây trước khi bắt đầu đếm
+- Timeout: 10 giây im lặng
+- Lần 1: "Dạ, {gender} còn nghe em không ạ?"
+- Lần 2: Kết thúc cuộc gọi
+
+## 📝 System Prompt
+
+Prompt được tối ưu cho tư vấn bảo hiểm xe:
+- File: `src/config/bot_scenario.py`
+- Ngắn gọn, tự nhiên, không lặp lại
+- Xưng hô: "em" - "{gender}" (anh/chị/cô/chú)
+- Tuân thủ CHỈ THỊ từ hệ thống về rejection count
+
+## 🧪 Testing
 
 ```bash
-# Cấu hình trong .env
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=lsv2_pt_your-api-key
-LANGCHAIN_PROJECT=voice-chatbot-insurance
+# Chạy tests
+pytest tests/
+
+# Test với coverage
+pytest --cov=src tests/
 ```
 
-**Xem chi tiết**: `LANGSMITH_SETUP.md`
+## 📊 LLM Tracing
 
-**Dashboard**: https://smith.langchain.com/
+Traces được lưu tại `logs/llm_traces.jsonl` với thông tin:
+- User input & agent output
+- Model name & parameters
+- Latency (ms)
+- Customer context & title
+- History length
+- Full messages & system prompt
 
-## 📝 Ghi chú
+Export traces sang JSON:
+```bash
+python src/utils/export_traces.py
+```
 
-- Hệ thống chỉ cần `OPENAI_API_KEY` để hoạt động cơ bản
-- Redis, TTS và ASR là tùy chọn, không bắt buộc
-- Voice input yêu cầu browser hỗ trợ MediaRecorder API (Chrome, Edge, Firefox)
-- Code đơn giản, dễ customize theo nhu cầu
+Output: `logs/test_export.json`
 
-## 📚 Tài liệu
+**LangSmith Integration (Optional):**
+- Set `LANGCHAIN_TRACING_V2=true`
+- Set `LANGCHAIN_API_KEY` và `LANGCHAIN_PROJECT`
+- Traces tự động gửi lên LangSmith cloud
 
-- `README.md` - Tài liệu chính (file này)
-- `VOICE_GUIDE.md` - Hướng dẫn chi tiết về voice input
-- `LANGSMITH_SETUP.md` - Hướng dẫn cài đặt LangSmith tracing
-- `.env.example` - Template cấu hình
+## 🎨 Tech Stack
 
-## 📞 Liên hệ
+- **Backend**: FastAPI, Python 3.11+
+- **AI**: OpenAI GPT-4o-mini (pure OpenAI SDK, no LangChain)
+- **WebSocket**: FastAPI WebSocket
+- **TTS**: Custom WebSocket service
+- **ASR**: gRPC service
+- **Storage**: Redis (optional)
+- **Tracing**: Custom JSONL + LangSmith (optional)
+- **Deploy**: Railway, Docker
 
-Nếu có vấn đề hoặc câu hỏi, vui lòng tạo Issue trên GitHub.
+## 🛠️ Development
 
----
+### Kiến trúc hệ thống
 
-**Version:** 2.1 (Voice Input)  
-**Last Updated:** 2026-04-09
+**WebSocket Flow:**
+1. Client kết nối WebSocket → `/ws/agent`
+2. Gửi `init_call` với thông tin khách hàng
+3. Bot gửi lời chào tự động
+4. Client gửi `text_input` hoặc audio chunks
+5. Bot phản hồi với text + TTS audio
+6. Kết thúc khi farewell hoặc silence timeout
+
+**Rejection Tracking:**
+- `CallHandler.is_rejection()` - Detect rejection patterns
+- `CallHandler.rejection_count` - Đếm số lần từ chối
+- Inject rejection context vào prompt để AI biết trạng thái
+
+**Silence Management:**
+- Timer bắt đầu sau khi audio phát xong + 3 giây
+- Reset khi user tương tác
+- 2 lần timeout → kết thúc cuộc gọi
+
+### Các file quan trọng
+
+- `simple_server.py` - FastAPI server, WebSocket routing
+- `src/services/message_handler.py` - Xử lý messages, AI interaction, rejection tracking
+- `src/services/call_handler.py` - Farewell/rejection detection, silence timeout
+- `src/services/audio_processor.py` - Audio recording và ASR
+- `src/services/ai_logic.py` - OpenAI integration (pure OpenAI, no LangChain)
+- `src/clients/text_to_speech.py` - TTS WebSocket client
+- `src/clients/speech_to_text.py` - ASR gRPC client
+
+### Thêm tính năng mới
+
+1. Tạo service mới trong `src/services/`
+2. Import vào `simple_server.py`
+3. Thêm WebSocket message handler nếu cần
+4. Update prompt trong `src/config/bot_scenario.py` nếu cần
+
+## 🔍 Troubleshooting
+
+**Bot không nhận diện từ chối:**
+- Check logs: `[Agent] Rejection detected (count: X/2)`
+- Kiểm tra regex patterns trong `CallHandler.is_rejection()`
+
+**Silence timer không hoạt động:**
+- Check logs: `[Timeout] Timer started/stopped`
+- Đảm bảo `audio_playback_ended` được gửi từ client
+
+**TTS/ASR không hoạt động:**
+- Check environment variables
+- Check logs: `[TTS]` và `[ASR]` messages
+
+## 📄 License
+
+MIT License
+
+## 🤝 Contributing
+
+Pull requests are welcome!
+
+## 📞 Support
+
+Nếu có vấn đề, vui lòng tạo issue trên GitHub.

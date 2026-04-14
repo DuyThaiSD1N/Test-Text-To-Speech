@@ -7,18 +7,10 @@ import base64
 import logging
 from typing import Optional, List
 from fastapi import WebSocket
-# Simple message types instead of langchain
-class HumanMessage:
-    def __init__(self, content: str):
-        self.content = content
-
-class AIMessage:
-    def __init__(self, content: str):
-        self.content = content
 
 from src.services.ai_logic import fast_stream
 from src.clients.text_to_speech import TTSClient
-from src.services.redis_store import RedisConversationStore
+from src.services.redis_store import RedisConversationStore, HumanMessage, AIMessage
 from src.services.call_handler import CallHandler
 
 logger = logging.getLogger(__name__)
@@ -88,10 +80,25 @@ class MessageHandler:
         self.call_handler.stop_silence_timer()
         self.call_handler.reset_silence_count()
         
+        # Kiểm tra rejection
+        is_rejection = self.call_handler.is_rejection(text)
+        if is_rejection:
+            self.call_handler.rejection_count += 1
+            logger.info(f"[Agent] Rejection detected (count: {self.call_handler.rejection_count}/2)")
+        
         logger.info(f"[Agent] Processing: {repr(text)}")
         
         # Gửi thinking
         await self.websocket.send_json({"type": "thinking"})
+        
+        # Thêm rejection count vào context
+        rejection_context = f"\n[TRẠNG THÁI: Khách đã từ chối {self.call_handler.rejection_count}/2 lần]"
+        if self.call_handler.rejection_count >= 2:
+            rejection_context += "\n[CHỈ THỊ: Đây là lần từ chối thứ 2. BẮT BUỘC phải xác nhận và kết thúc: 'Dạ vâng ạ, em hiểu {gender} không có nhu cầu lúc này. Em cảm ơn {gender} đã lắng nghe. Chúc {gender} một ngày tốt lành ạ!']"
+        elif self.call_handler.rejection_count == 1:
+            rejection_context += "\n[CHỈ THỊ: Đây là lần từ chối thứ 1. Thuyết phục nhẹ 1 lần: 'Dạ em hiểu ạ. Nhưng bảo hiểm TNDS là bắt buộc theo luật, không có sẽ bị phạt. Để em gửi thông tin qua tin nhắn cho {gender} tham khảo nhé?']"
+        
+        full_context = self.customer_context + rejection_context
         
         # Gọi AI với streaming
         try:
@@ -101,7 +108,7 @@ class MessageHandler:
             async for token in fast_stream(
                 text,
                 self.conversation_history,
-                self.customer_context,
+                full_context,
                 self.customer_title,
                 self.session_id
             ):
@@ -274,17 +281,27 @@ class MessageHandler:
             )
     
     async def handle_audio_playback_ended(self):
-        """Xử lý khi audio phát xong"""
+        """Xử lý khi audio phát xong - CHỜ 3 GIÂY trước khi start timer"""
         # Kiểm tra farewell
         if self.call_handler.is_farewell_message(self.call_handler.last_agent_response):
             logger.info("[Timeout] Farewell message detected - NOT starting timer")
-        elif self.call_handler.call_initiated and self.call_handler.silence_count < 2:
-            self.call_handler.start_silence_timer(
-                self.on_reminder,
-                self.on_goodbye
-            )
-        elif self.call_handler.silence_count >= 2:
+            return
+        
+        if self.call_handler.silence_count >= 2:
             logger.info("[Timeout] Goodbye already sent, not starting timer")
+            return
+        
+        # Chờ 3 giây để user có thời gian suy nghĩ trước khi bắt đầu đếm im lặng
+        if self.call_handler.call_initiated:
+            logger.info("[Timeout] Audio ended - waiting 3s before starting timer")
+            await asyncio.sleep(3)
+            
+            # Kiểm tra lại xem có đang tương tác không
+            if self.call_handler.call_initiated and self.call_handler.silence_count < 2:
+                self.call_handler.start_silence_timer(
+                    self.on_reminder,
+                    self.on_goodbye
+                )
     
     async def handle_clear_history(self):
         """Xử lý clear history"""
