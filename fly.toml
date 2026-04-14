@@ -1,0 +1,36 @@
+# fly.toml app configuration file
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+
+app = "voice-agent-chatbot"
+primary_region = "sin"  # Singapore
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8002"
+  AGENT_MODEL = "gpt-4o-mini"
+  USE_FAST_PROMPT = "true"
+  MAX_HISTORY_MESSAGES = "10"
+  ENABLE_LLM_TRACING = "true"
+  LANGCHAIN_TRACING_V2 = "false"
+
+[http_service]
+  internal_port = 8002
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

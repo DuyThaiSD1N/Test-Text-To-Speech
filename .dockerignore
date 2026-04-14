@@ -1,0 +1,46 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.venv
+venv
+env
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Logs
+logs/*.jsonl
+*.log
+
+# Environment
+.env
+.env.local
+
+# Tests
+tests
+.pytest_cache
+
+# Documentation
+*.md
+!README.md
+
+# Kiro
+.kiro
+
+# Other
+.DS_Store
