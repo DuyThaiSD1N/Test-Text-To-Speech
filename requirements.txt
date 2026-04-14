@@ -4,12 +4,12 @@ uvicorn[standard]==0.27.0
 websockets==12.0
 python-dotenv==1.0.0
 
-# AI & LangChain - Use latest stable versions
+# AI & LangChain - Use stable versions without proxies bug
 langchain>=0.2.0
 langchain-openai>=0.1.0
 langchain-core>=0.2.0
 langgraph>=0.1.0
-openai>=1.30.0
+openai==1.12.0
 
 # LangSmith for tracing (optional)
 langsmith>=0.0.87

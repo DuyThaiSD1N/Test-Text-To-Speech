@@ -179,7 +179,8 @@ async def fast_stream(
     
     # Use OpenAI client directly
     try:
-        client = AsyncOpenAI(api_key=api_key)
+        # Simple initialization without extra parameters
+        client = AsyncOpenAI()
         
         stream = await client.chat.completions.create(
             model=model,
