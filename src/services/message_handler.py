@@ -80,6 +80,44 @@ class MessageHandler:
         self.call_handler.stop_silence_timer()
         self.call_handler.reset_silence_count()
         
+        # Kiểm tra unclear text
+        is_unclear = self.call_handler.is_unclear_text(text)
+        if is_unclear:
+            self.call_handler.unclear_count += 1
+            logger.info(f"[Agent] Unclear text detected (count: {self.call_handler.unclear_count}/2)")
+            
+            # Nếu đã 2 lần không rõ → Kết thúc
+            if self.call_handler.unclear_count >= 2:
+                logger.info("[Agent] 2 unclear attempts - ending call")
+                goodbye_msg = f"Dạ, em xin lỗi vì không nghe rõ. Em xin phép kết thúc cuộc gọi. Chúc {self.customer_title} một ngày tốt lành ạ!"
+                
+                await self.websocket.send_json({
+                    "type": "agent_response",
+                    "text": goodbye_msg
+                })
+                
+                # TTS
+                if self.tts_client:
+                    try:
+                        async for chunk in self.tts_client.synthesize(goodbye_msg):
+                            if chunk:
+                                audio_base64 = base64.b64encode(chunk).decode('utf-8')
+                                await self.websocket.send_json({
+                                    "type": "audio_response",
+                                    "audio": audio_base64,
+                                    "sampleRate": 8000
+                                })
+                        await self.websocket.send_json({"type": "audio_end"})
+                    except Exception as e:
+                        logger.error(f"[TTS] Error: {e}")
+                
+                # End call
+                await self.websocket.send_json({
+                    "type": "call_ended",
+                    "reason": "unclear_speech"
+                })
+                return
+        
         # Kiểm tra rejection
         is_rejection = self.call_handler.is_rejection(text)
         if is_rejection:
@@ -91,14 +129,22 @@ class MessageHandler:
         # Gửi thinking
         await self.websocket.send_json({"type": "thinking"})
         
-        # Thêm rejection count vào context
-        rejection_context = f"\n[TRẠNG THÁI: Khách đã từ chối {self.call_handler.rejection_count}/2 lần]"
-        if self.call_handler.rejection_count >= 2:
-            rejection_context += "\n[CHỈ THỊ: Đây là lần từ chối thứ 2. BẮT BUỘC phải xác nhận và kết thúc: 'Dạ vâng ạ, em hiểu {gender} không có nhu cầu lúc này. Em cảm ơn {gender} đã lắng nghe. Chúc {gender} một ngày tốt lành ạ!']"
-        elif self.call_handler.rejection_count == 1:
-            rejection_context += "\n[CHỈ THỊ: Đây là lần từ chối thứ 1. Thuyết phục nhẹ 1 lần: 'Dạ em hiểu ạ. Nhưng bảo hiểm TNDS là bắt buộc theo luật, không có sẽ bị phạt. Để em gửi thông tin qua tin nhắn cho {gender} tham khảo nhé?']"
+        # Thêm rejection count và unclear count vào context
+        context_parts = [self.customer_context]
         
-        full_context = self.customer_context + rejection_context
+        if self.call_handler.unclear_count > 0:
+            context_parts.append(f"\n[TRẠNG THÁI: Khách nói không rõ {self.call_handler.unclear_count}/2 lần]")
+            if self.call_handler.unclear_count == 1:
+                context_parts.append("\n[CHỈ THỊ: Lần 1 không rõ. Hỏi lại lịch sự: 'Dạ, em xin lỗi, em không nghe rõ. {gender} có thể nói lại được không ạ?']")
+        
+        if self.call_handler.rejection_count > 0:
+            context_parts.append(f"\n[TRẠNG THÁI: Khách đã từ chối {self.call_handler.rejection_count}/2 lần]")
+            if self.call_handler.rejection_count >= 2:
+                context_parts.append("\n[CHỈ THỊ: Đây là lần từ chối thứ 2. BẮT BUỘC phải xác nhận và kết thúc: 'Dạ vâng ạ, em hiểu {gender} không có nhu cầu lúc này. Em cảm ơn {gender} đã lắng nghe. Chúc {gender} một ngày tốt lành ạ!']")
+            elif self.call_handler.rejection_count == 1:
+                context_parts.append("\n[CHỈ THỊ: Đây là lần từ chối thứ 1. Thuyết phục nhẹ 1 lần: 'Dạ em hiểu ạ. Nhưng bảo hiểm TNDS là bắt buộc theo luật, không có sẽ bị phạt. Để em gửi thông tin qua tin nhắn cho {gender} tham khảo nhé?']")
+        
+        full_context = "".join(context_parts)
         
         # Gọi AI với streaming
         try:

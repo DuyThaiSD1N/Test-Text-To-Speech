@@ -39,6 +39,50 @@ class CallHandler:
         self.silence_timer_task: Optional[asyncio.Task] = None
         self.is_ending = False  # Flag để tránh loop
         self.rejection_count = 0  # Đếm số lần từ chối
+        self.unclear_count = 0  # Đếm số lần nói không rõ
+    
+    @staticmethod
+    def is_unclear_text(text: str) -> bool:
+        """
+        Kiểm tra xem text có phải là gibberish/không rõ ràng không.
+        
+        Args:
+            text: Nội dung message cần kiểm tra
+            
+        Returns:
+            True nếu là unclear text, False nếu rõ ràng
+        """
+        text = text.strip()
+        
+        # Text quá ngắn (< 3 ký tự)
+        if len(text) < 3:
+            return True
+        
+        # Chỉ toàn ký tự đặc biệt hoặc số
+        if re.match(r'^[^a-zA-ZÀ-ỹ]+$', text):
+            return True
+        
+        # Tỷ lệ consonant liên tiếp quá cao (gibberish) - 3+ consonants
+        consonant_clusters = re.findall(r'[bcdfghjklmnpqrstvwxyz]{3,}', text.lower())
+        # Loại trừ các cluster hợp lệ trong tiếng Việt
+        valid_clusters = ['ngh', 'kh', 'ch', 'th', 'ph', 'nh', 'tr', 'ng']
+        invalid_clusters = [c for c in consonant_clusters if c not in valid_clusters]
+        if len(invalid_clusters) > 0:
+            return True
+        
+        # Random characters (ít vowels)
+        vowels = len(re.findall(r'[aeiouàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ]', text.lower()))
+        total_letters = len(re.findall(r'[a-zA-ZÀ-ỹ]', text))
+        
+        if total_letters > 5 and vowels / total_letters < 0.2:
+            return True
+        
+        # Quá nhiều số lẫn chữ (random)
+        digits = len(re.findall(r'\d', text))
+        if total_letters > 0 and digits > 0 and digits / len(text) > 0.3:
+            return True
+        
+        return False
     
     @staticmethod
     def is_rejection(text: str) -> bool:
@@ -227,4 +271,5 @@ class CallHandler:
         self.last_agent_response = ""
         self.is_ending = False
         self.rejection_count = 0
+        self.unclear_count = 0
         logger.info("[CallHandler] State reset")

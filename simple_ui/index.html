@@ -361,9 +361,7 @@
 
         const chatArea = document.getElementById('chatArea');
         const welcome = document.getElementById('welcome');
-        const messageInput = document.getElementById('messageInput');
         const status = document.getElementById('status');
-        const recordBtn = document.getElementById('recordBtn');
 
         // ═══════════════════════════════════════════════════════════════════════
         // AUDIO FUNCTIONS
@@ -715,8 +713,12 @@
                 // Start recording
                 mediaRecorder.start(100); // Collect data every 100ms
                 isRecording = true;
-                recordBtn.classList.add('recording');
-                recordBtn.textContent = '⏹️';
+
+                const btn = document.getElementById('recordBtn');
+                if (btn) {
+                    btn.classList.add('recording');
+                    btn.textContent = '⏹️';
+                }
                 setStatus('🎤 Đang ghi âm...', '#ef4444');
 
                 // Send audio_start to server
@@ -738,8 +740,11 @@
             console.log('[Record] Stopping...');
 
             isRecording = false;
-            recordBtn.classList.remove('recording');
-            recordBtn.textContent = '🎤';
+            const btn = document.getElementById('recordBtn');
+            if (btn) {
+                btn.classList.remove('recording');
+                btn.textContent = '🎤';
+            }
             setStatus('⏳ Đang xử lý...', '#f59e0b');
 
             mediaRecorder.stop();
@@ -856,11 +861,20 @@
         }
 
         async function sendMessage() {
-            const text = messageInput.value.trim();
-            if (!text || isProcessing) return;
+            const input = document.getElementById('messageInput');
+            if (!input) {
+                console.error('[Send] Input element not found');
+                return;
+            }
+
+            const text = input.value.trim();
+            if (!text || isProcessing) {
+                console.log('[Send] Blocked - text:', text, 'isProcessing:', isProcessing);
+                return;
+            }
 
             console.log('[Send] Message:', text);
-            messageInput.value = '';
+            input.value = '';
             addUserBubble(text);
             isProcessing = true;
 
@@ -953,6 +967,9 @@
                     <button class="btn-danger" onclick="clearChat()">Xóa</button>
                 </div>
             `;
+
+            // Reset state
+            isProcessing = false;
         }
 
         function resetChat() {
