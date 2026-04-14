@@ -4,17 +4,10 @@ uvicorn[standard]==0.27.0
 websockets==12.0
 python-dotenv==1.0.0
 
-# AI & LangChain - Compatible stable versions
-langchain==0.1.9
-langchain-openai==0.0.5
-langchain-core==0.1.29
-langgraph==0.0.20
+# OpenAI only - no langchain to avoid proxies bug
 openai==1.12.0
 
-# LangSmith for tracing (optional)
-langsmith>=0.0.87
-
-# gRPC for ASR (optional) - using newer version with better wheel support
+# gRPC for ASR (optional)
 grpcio>=1.62.0
 grpcio-tools>=1.62.0
 protobuf>=4.25.0
@@ -22,7 +15,6 @@ protobuf>=4.25.0
 # Utilities
 aiofiles==23.2.1
 pydantic>=2.0.0,<3.0.0
-pydantic-core>=2.0.0,<3.0.0
 typing-extensions==4.9.0
 
 redis==5.0.1

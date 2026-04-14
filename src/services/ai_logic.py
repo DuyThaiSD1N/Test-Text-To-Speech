@@ -1,40 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-agent.py — LangGraph ReAct Agent
-Nhận text từ ASR, sử dụng tools (Thời tiết) và trả lời bằng giọng nói qua TTS.
+AI Logic - OpenAI Integration (No LangChain)
 """
 import os
 import time
-from typing import Annotated, List, Union, AsyncIterator
+from typing import List, AsyncIterator
 from dotenv import load_dotenv
 
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
-from langgraph.graph import StateGraph, END
-from langgraph.graph.message import add_messages
-from typing_extensions import TypedDict
-
-# Import OpenAI directly as fallback
+# Import OpenAI directly
 from openai import AsyncOpenAI
 
 load_dotenv()
 
-# ═══════════════════════════════════════════════════════════════════════
-# LANGSMITH TRACING SETUP
-# ═══════════════════════════════════════════════════════════════════════
-# LangSmith sẽ tự động trace nếu các biến môi trường được set
-# LANGCHAIN_TRACING_V2=true
-# LANGCHAIN_API_KEY=your-api-key
-# LANGCHAIN_PROJECT=your-project-name
-
 import logging
 logger = logging.getLogger(__name__)
 
-if os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true":
-    langsmith_project = os.getenv("LANGCHAIN_PROJECT", "voice-chatbot-insurance")
-    logger.info(f"[LangSmith] ✅ Tracing enabled - Project: {langsmith_project}")
+# Check API key
+if os.getenv("OPENAI_API_KEY"):
+    logger.info("[OpenAI] API key found")
 else:
-    logger.info("[LangSmith] Tracing disabled")
+    logger.warning("[OpenAI] API key not found in environment")
 
 # ═══════════════════════════════════════════════════════════════════════
 # LLM TRACING
@@ -43,55 +28,12 @@ from src.utils.llm_tracer import get_tracer
 
 tracer = get_tracer()
 
-# ─── State ────────────────────────────────────────────────────────────────────
-class AgentState(TypedDict):
-    # add_messages giúp cộng dồn lịch sử hội thoại thay vì ghi đè
-    messages: Annotated[List[BaseMessage], add_messages]
-    customer_context: str
-    customer_title: str
-
-# ─── LLM ──────────────────────────────────────────────────────────────────────
-_llm_instance = None
-
-def get_llm():
-    """Trả về singleton LLM instance, chỉ khởi tạo một lần."""
-    global _llm_instance
-    if _llm_instance is None:
-        api_key = os.getenv("OPENAI_API_KEY")
-        model   = os.getenv("AGENT_MODEL", "gpt-4o-mini")
-        
-        # Debug logging
-        if api_key:
-            logger.info(f"[LLM] API key found: {api_key[:10]}...")
-        else:
-            logger.error("[LLM] OPENAI_API_KEY not found in environment!")
-            raise RuntimeError("OPENAI_API_KEY phải được cấu hình trong .env hoặc environment variables")
-        
-        # Set env var để OpenAI client tự động pick up
-        os.environ["OPENAI_API_KEY"] = api_key
-        
-        try:
-            # Workaround for 'proxies' error - use minimal parameters
-            _llm_instance = ChatOpenAI(
-                model=model,
-                temperature=0.2,
-                streaming=True
-            )
-            logger.info(f"[LLM] ✅ Initialized successfully with model: {model}")
-        except Exception as e:
-            logger.error(f"[LLM] ❌ Failed to initialize: {e}")
-            raise
-    
-    return _llm_instance
-
 from src.config.bot_scenario import INSURANCE_SYSTEM_PROMPT
 
 # ─── System Prompt ─────────────────────────────────────────────────────────────
 def get_system_prompt() -> str:
     """
     Trả về system prompt dựa trên cấu hình.
-    - Fast mode: Prompt ngắn (~300 tokens) cho tốc độ tối đa
-    - Full mode: Prompt đầy đủ (~1500 tokens) cho độ chính xác cao
     """
     use_fast_prompt = os.getenv("USE_FAST_PROMPT", "true").lower() == "true"
     
@@ -100,38 +42,6 @@ def get_system_prompt() -> str:
         return INSURANCE_SYSTEM_PROMPT_FAST
     else:
         return os.getenv("AGENT_SYSTEM_PROMPT", INSURANCE_SYSTEM_PROMPT)
-
-# ─── Nodes ────────────────────────────────────────────────────────────────────
-async def call_agent(state: AgentState):
-    """Node này gọi LLM để quyết định hành động tiếp theo."""
-    llm = get_llm()
-    system_content = get_system_prompt()
-    title = state.get("customer_title", "anh/chị")
-    
-    # Thay thế triệt để danh xưng chung trong template bằng danh xưng thực tế
-    system_content = system_content.replace("{gender}", title.lower())
-    
-    context = state.get("customer_context", "")
-    if context:
-        system_content += f"\n\n[THÔNG TIN KHÁCH HÀNG]\n{context}\n(Chỉ thị MẠNH: TUYỆT ĐỐI KHÔNG xưng hô chung chung là 'anh/chị'. BẮT BUỘC thay thế hoàn toàn các từ 'anh/chị' bằng '{title}' trong mọi câu phản hồi. Bạn đang nói chuyện trực tiếp với {title})."
-    
-    system = SystemMessage(content=system_content)
-    messages = [system] + state["messages"]
-    response = await llm.ainvoke(messages)
-    return {"messages": [response]}
-
-# ─── Build Graph ──────────────────────────────────────────────────────────────
-def build_agent():
-    workflow = StateGraph(AgentState)
-    
-    workflow.add_node("agent", call_agent)
-    workflow.set_entry_point("agent")
-    workflow.add_edge("agent", END)
-    
-    return workflow.compile()
-
-# Singleton instance
-agent = build_agent()
 
 async def fast_stream(
     text: str, 

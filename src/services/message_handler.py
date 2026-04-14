@@ -7,7 +7,14 @@ import base64
 import logging
 from typing import Optional, List
 from fastapi import WebSocket
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+# Simple message types instead of langchain
+class HumanMessage:
+    def __init__(self, content: str):
+        self.content = content
+
+class AIMessage:
+    def __init__(self, content: str):
+        self.content = content
 
 from src.services.ai_logic import fast_stream
 from src.clients.text_to_speech import TTSClient
@@ -33,7 +40,7 @@ class MessageHandler:
         self.redis_store = redis_store
         
         # State
-        self.conversation_history: List[BaseMessage] = []
+        self.conversation_history: List = []
         self.customer_context = ""
         self.customer_title = "Quý khách"
         
