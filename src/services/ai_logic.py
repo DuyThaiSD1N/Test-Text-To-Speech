@@ -14,6 +14,9 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
+# Import OpenAI directly as fallback
+from openai import AsyncOpenAI
+
 load_dotenv()
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -138,40 +141,24 @@ async def fast_stream(
     session_id: str = ""
 ) -> AsyncIterator[str]:
     """
-    Dùng LLM trực tiếp (không qua LangGraph) để lấy phản hồi nhanh nhất có thể.
-    Thích hợp cho câu chào đầu tiên hoặc các câu trả lời đơn giản không cần tools.
-    Dùng temperature=0 để giảm thời gian nhận token đầu tiên (TTFT).
+    Dùng OpenAI client trực tiếp để tránh lỗi 'proxies' trong langchain.
     """
     api_key = os.getenv("OPENAI_API_KEY")
     model   = os.getenv("AGENT_MODEL", "gpt-4o-mini")
     
-    # Dùng instance riêng temperature=0 cho tốc độ tối đa
-    # Giới hạn history để giảm tokens
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not found")
+    
+    # Giới hạn history
     max_history = int(os.getenv("MAX_HISTORY_MESSAGES", "10"))
     recent_history = history[-max_history:] if len(history) > max_history else history
-    
-    # Ensure API key is in environment
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY not found in environment")
-    
-    try:
-        # Workaround for 'proxies' error - minimal parameters
-        fast_llm = ChatOpenAI(
-            model=model,
-            temperature=0,
-            streaming=True,
-            max_tokens=200
-        )
-    except Exception as e:
-        logger.error(f"[LLM] Failed to create fast_llm instance: {e}")
-        raise
     
     # Track timing
     start_time = time.time()
     response_parts = []
     error = None
     
-    # Build messages for logging
+    # Build messages
     system_content = get_system_prompt()
     title_lower = title.lower()
     system_content = system_content.replace("{gender}", title_lower)
@@ -179,24 +166,38 @@ async def fast_stream(
     if context:
         system_content += f"\n\n[THÔNG TIN KHÁCH HÀNG]\n{context}\n(Chỉ thị: Xưng hô với khách là '{title}')."
     
-    messages = [SystemMessage(content=system_content)] + recent_history + [HumanMessage(content=text)]
+    # Convert to OpenAI format
+    messages = [{"role": "system", "content": system_content}]
     
-    # Convert messages to dict for logging
-    messages_for_log = []
-    for msg in messages:
-        msg_dict = {
-            "role": msg.__class__.__name__.replace("Message", "").lower(),
-            "content": msg.content[:200] if len(msg.content) > 200 else msg.content  # Limit length
-        }
-        messages_for_log.append(msg_dict)
+    for msg in recent_history:
+        if isinstance(msg, HumanMessage):
+            messages.append({"role": "user", "content": msg.content})
+        elif isinstance(msg, AIMessage):
+            messages.append({"role": "assistant", "content": msg.content})
     
+    messages.append({"role": "user", "content": text})
+    
+    # Use OpenAI client directly
     try:
-        async for chunk in fast_llm.astream(messages):
-            if chunk.content:
-                response_parts.append(chunk.content)
-                yield chunk.content
+        client = AsyncOpenAI(api_key=api_key)
+        
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0,
+            max_tokens=200,
+            stream=True
+        )
+        
+        async for chunk in stream:
+            if chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                response_parts.append(content)
+                yield content
+                
     except Exception as e:
         error = str(e)
+        logger.error(f"[LLM] Stream error: {e}")
         raise
     finally:
         # Log to tracer
@@ -214,5 +215,5 @@ async def fast_stream(
             latency_ms=latency_ms,
             error=error,
             system_prompt=system_content,
-            full_messages=messages_for_log
+            full_messages=messages
         )
