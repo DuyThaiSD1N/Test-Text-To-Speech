@@ -7,7 +7,7 @@ python-dotenv==1.0.0
 # AI & LangChain - Compatible stable versions
 langchain==0.1.9
 langchain-openai==0.0.5
-langchain-core==0.1.23
+langchain-core==0.1.29
 langgraph==0.0.20
 openai==1.12.0
 
