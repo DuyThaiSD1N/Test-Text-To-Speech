@@ -40,8 +40,15 @@ Thumbs.db
 
 # Logs
 *.log
-logs/
+logs/*.jsonl
+logs/*.json
 
 # Backup
 *.backup
 *.bak
+
+# Kiro
+.kiro/
+
+# Railway local
+.railway/
