@@ -194,6 +194,11 @@ async def agent_websocket(websocket: WebSocket):
             
             elif msg_type == "audio_end":
                 if audio_processor and audio_processor.is_recording:
+                    # Check if already processing
+                    if audio_processor.is_processing:
+                        logger.warning("[WebSocket] Audio already being processed - ignoring duplicate audio_end")
+                        continue
+                    
                     message_handler.call_handler.stop_silence_timer()
                     
                     # Process audio
@@ -203,7 +208,7 @@ async def agent_websocket(websocket: WebSocket):
                         # Reset silence count
                         message_handler.call_handler.reset_silence_count()
                         
-                        # Process with AI
+                        # Process with AI (không cần gửi user_message vì transcript final đã được gửi từ ASR)
                         await message_handler.handle_text_input(transcript)
                     else:
                         # Start timer lại nếu không nhận diện được
@@ -219,18 +224,79 @@ async def agent_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         logger.info(f"[WebSocket] Client disconnected normally (session: {session_id})")
     except Exception as e:
-        # Chỉ log error nếu không phải lỗi disconnect bình thường
-        if "1000" not in str(e):  # 1000 = normal closure
+        if "1000" not in str(e):
             logger.error(f"[WebSocket] Error: {e}", exc_info=True)
         else:
             logger.info(f"[WebSocket] Connection closed (session: {session_id})")
     finally:
-        # Cleanup
+        message_handler.cleanup()
+
+
+# WebSocket endpoint for test UI (same as main, but separate for clarity)
+@app.websocket("/ws/test-agent")
+async def test_agent_websocket(websocket: WebSocket):
+    await websocket.accept()
+    logger.info("[TestWS] Test client connected")
+    
+    # Create session
+    session_id = f"test-{str(uuid.uuid4())}"
+    logger.info(f"[TestSession] Created: {session_id}")
+    
+    # Initialize handlers (same as main)
+    message_handler = MessageHandler(
+        websocket=websocket,
+        session_id=session_id,
+        tts_client=tts_client,
+        redis_store=redis_store
+    )
+    
+    # Load from Redis
+    await message_handler.load_from_redis()
+    
+    try:
+        while True:
+            # Receive message
+            message = await websocket.receive_text()
+            data = eval(message) if isinstance(message, str) else message
+            msg_type = data.get("type")
+            
+            # Extend TTL
+            await message_handler.extend_ttl()
+            
+            # Handle messages (same as main, but no audio recording)
+            if msg_type == "text_input":
+                text = data.get("text", "").strip()
+                if text:
+                    await message_handler.handle_text_input(text)
+            
+            elif msg_type == "init_call":
+                call_data = data.get("data", {})
+                await message_handler.handle_init_call(call_data)
+            
+            elif msg_type == "audio_playback_ended":
+                await message_handler.handle_audio_playback_ended()
+            
+            elif msg_type == "clear_history":
+                await message_handler.handle_clear_history()
+    
+    except WebSocketDisconnect:
+        logger.info(f"[TestWS] Client disconnected normally (session: {session_id})")
+    except Exception as e:
+        if "1000" not in str(e):
+            logger.error(f"[TestWS] Error: {e}", exc_info=True)
+        else:
+            logger.info(f"[TestWS] Connection closed (session: {session_id})")
+    finally:
         message_handler.cleanup()
 
 
 if __name__ == "__main__":
     import uvicorn
+    # Render.com sets PORT env variable
+    port = int(os.getenv("PORT", os.getenv("AGENT_SERVER_PORT", "8002")))
+    logger.info(f"Starting server on port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+
     # Render.com sets PORT env variable
     port = int(os.getenv("PORT", os.getenv("AGENT_SERVER_PORT", "8002")))
     logger.info(f"Starting server on port {port}")

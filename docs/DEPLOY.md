@@ -41,6 +41,35 @@ railway variables set ASR_GRPC_URI="103.253.20.28:9000"
 railway variables set ASR_TOKEN="your-asr-token"
 ```
 
+## Bước 4: Kết nối LangSmith (Optional - Recommended)
+
+LangSmith giúp theo dõi và debug LLM calls real-time.
+
+1. Đăng ký tại: https://smith.langchain.com/
+2. Tạo API key tại Settings → API Keys
+3. Set variables:
+
+```bash
+railway variables set LANGCHAIN_TRACING_V2="true"
+railway variables set LANGCHAIN_API_KEY="lsv2_pt_xxxxx"
+railway variables set LANGCHAIN_PROJECT="voice-agent-insurance"
+railway variables set LANGCHAIN_ENDPOINT="https://api.smith.langchain.com"
+```
+
+4. Deploy lại:
+
+```bash
+railway up
+```
+
+5. Kiểm tra traces tại: https://smith.langchain.com/
+
+Mỗi cuộc gọi sẽ hiển thị:
+- User input & Agent output
+- Latency & Model used
+- Full conversation history
+- System prompt & Customer context
+
 ## Kiểm tra
 
 Sau khi deploy xong, truy cập:

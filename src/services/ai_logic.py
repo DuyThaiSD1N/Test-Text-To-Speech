@@ -31,6 +31,24 @@ from src.utils.llm_tracer import get_tracer
 
 tracer = get_tracer()
 
+# LangSmith integration
+langsmith_client = None
+LANGSMITH_ENABLED = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+
+if LANGSMITH_ENABLED:
+    try:
+        from langsmith import Client
+        langsmith_client = Client()
+        logger.info("[LangSmith] ✅ Enabled and connected")
+    except ImportError:
+        logger.warning("[LangSmith] Package not installed - run: pip install langsmith")
+        LANGSMITH_ENABLED = False
+    except Exception as e:
+        logger.warning(f"[LangSmith] Failed to initialize: {e}")
+        LANGSMITH_ENABLED = False
+else:
+    logger.info("[LangSmith] Disabled")
+
 from src.config.bot_scenario import INSURANCE_SYSTEM_PROMPT
 
 # ─── System Prompt ─────────────────────────────────────────────────────────────
@@ -108,7 +126,7 @@ async def fast_stream(
         logger.error(f"[LLM] Stream error: {e}")
         raise
     finally:
-        # Log to tracer
+        # Log to local tracer
         latency_ms = (time.time() - start_time) * 1000
         response = "".join(response_parts)
         
@@ -125,3 +143,43 @@ async def fast_stream(
             system_prompt=system_content,
             full_messages=messages
         )
+        
+        # Log to LangSmith
+        if LANGSMITH_ENABLED and langsmith_client:
+            try:
+                import uuid
+                from datetime import datetime
+                
+                run_id = str(uuid.uuid4())
+                
+                # Create run with proper format
+                langsmith_client.create_run(
+                    id=run_id,
+                    name="voice_agent_call",
+                    run_type="llm",
+                    inputs={
+                        "prompt": text,
+                        "messages": [
+                            {"role": m["role"], "content": m["content"][:200] if len(m["content"]) > 200 else m["content"]}
+                            for m in messages
+                        ]
+                    },
+                    outputs={"output": response} if response else None,
+                    project_name=os.getenv("LANGCHAIN_PROJECT", "voice-agent-insurance"),
+                    tags=["voice-agent", "insurance", f"session:{session_id[:8]}"],
+                    extra={
+                        "metadata": {
+                            "customer_title": title,
+                            "history_length": len(recent_history),
+                            "model": model,
+                            "temperature": 0.3,
+                            "max_tokens": 300
+                        }
+                    },
+                    error=error,
+                    start_time=datetime.fromtimestamp(start_time),
+                    end_time=datetime.fromtimestamp(time.time())
+                )
+                logger.info(f"[LangSmith] ✅ Logged run {run_id[:8]} for session {session_id[:8]}")
+            except Exception as e:
+                logger.error(f"[LangSmith] ❌ Failed to log: {e}", exc_info=True)

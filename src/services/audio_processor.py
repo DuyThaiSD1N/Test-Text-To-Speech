@@ -29,6 +29,7 @@ class AudioProcessor:
         # State
         self.is_recording = False
         self.audio_queue: Optional[asyncio.Queue] = None
+        self.is_processing = False  # Flag để prevent duplicate processing
     
     async def start_recording(self):
         """Bắt đầu ghi âm"""
@@ -53,17 +54,23 @@ class AudioProcessor:
         if not self.is_recording or not self.audio_queue:
             return None
         
+        # Prevent duplicate processing
+        if self.is_processing:
+            logger.warning("[Audio] Already processing - skipping duplicate call")
+            return None
+        
+        self.is_processing = True
         logger.info("[Audio] Recording stopped, processing...")
         self.is_recording = False
         
-        # Signal end of stream
-        await self.audio_queue.put(None)
-        
-        # Send thinking status
-        await self.websocket.send_json({"type": "thinking"})
-        
-        # Process audio with ASR
         try:
+            # Signal end of stream
+            await self.audio_queue.put(None)
+            
+            # Send thinking status
+            await self.websocket.send_json({"type": "thinking"})
+            
+            # Process audio with ASR
             asr_client = ASRClient(uri=self.asr_uri, token=self.asr_token)
             
             async def audio_generator():
@@ -75,17 +82,23 @@ class AudioProcessor:
                 yield None  # Sentinel
             
             transcript_parts = []
+            last_final_transcript = ""
+            result_count = 0
+            
             async for result in asr_client.stream_audio(audio_generator()):
+                result_count += 1
+                logger.info(f"[ASR] Result #{result_count}: {result}")
+                
                 if "transcript" in result and result["transcript"]:
-                    transcript_parts.append(result["transcript"])
-                    logger.info(f"[ASR] Partial: {result['transcript']}")
+                    is_final = result.get("isFinal", False)
                     
-                    # Send partial transcript to client
-                    await self.websocket.send_json({
-                        "type": "transcript",
-                        "text": result["transcript"],
-                        "isFinal": result.get("isFinal", False)
-                    })
+                    if is_final:
+                        # Lưu final transcript (có thể có nhiều final, lấy cái cuối)
+                        last_final_transcript = result["transcript"]
+                        logger.info(f"[ASR] ✅ Final transcript: {last_final_transcript}")
+                    else:
+                        # Log partial nhưng KHÔNG gửi lên client
+                        logger.info(f"[ASR] Partial: {result['transcript']}")
                 
                 if result.get("error"):
                     logger.error(f"[ASR] Error: {result['error']}")
@@ -95,21 +108,28 @@ class AudioProcessor:
                     })
                     break
             
+            logger.info(f"[ASR] Stream ended. Total results: {result_count}, Final transcript: '{last_final_transcript}'")
+            
             # Close ASR client
             await asr_client.close()
             
-            # Get final transcript
-            final_transcript = " ".join(transcript_parts).strip()
-            
-            if not final_transcript:
+            # Check nếu không có transcript
+            if not last_final_transcript:
                 await self.websocket.send_json({
                     "type": "error",
                     "message": "Không nhận diện được giọng nói"
                 })
                 return None
             
-            logger.info(f"[ASR] Final transcript: {final_transcript}")
-            return final_transcript
+            # Gửi transcript lên UI để hiển thị user bubble
+            await self.websocket.send_json({
+                "type": "transcript",
+                "text": last_final_transcript,
+                "isFinal": True
+            })
+            
+            logger.info(f"[ASR] Returning final transcript: {last_final_transcript}")
+            return last_final_transcript
         
         except Exception as e:
             logger.error(f"[ASR] Error: {e}", exc_info=True)
@@ -118,3 +138,5 @@ class AudioProcessor:
                 "message": f"Lỗi xử lý audio: {str(e)}"
             })
             return None
+        finally:
+            self.is_processing = False  # Reset flag

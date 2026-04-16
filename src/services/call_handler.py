@@ -194,6 +194,11 @@ class CallHandler:
         try:
             await asyncio.sleep(self.silence_timeout)
             
+            # Kiểm tra nếu call không còn initiated (đã reset) thì không làm gì
+            if not self.call_initiated:
+                logger.info("[Timeout] Call not initiated - timer cancelled")
+                return
+            
             # Kiểm tra nếu đang kết thúc thì không làm gì
             if self.is_ending:
                 return
